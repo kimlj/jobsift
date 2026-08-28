@@ -20,8 +20,33 @@ USD_TO_PHP = 58.0
 # Hours assumed per month when a listing quotes an hourly rate. 160 = 40h/week.
 # Part-time remote work is commonly 15-20h/week, which is why this is tunable and
 # why a listing tagged part-time uses the smaller figure.
-DEFAULT_HOURS_FULL_TIME = 160.0
-DEFAULT_HOURS_PART_TIME = 80.0
+WEEKS_PER_MONTH = 4.0
+DEFAULT_HOURS_FULL_TIME = 40.0 * WEEKS_PER_MONTH   # 160
+DEFAULT_HOURS_PART_TIME = 20.0 * WEEKS_PER_MONTH   # 80
+
+# "30 hrs/week", "20-30 hours per week", "35 hours weekly", "25 hrs pw".
+# The week qualifier is required, so a bare "40 hours" cannot match.
+_HOURS_PER_WEEK_RE = re.compile(
+    r"(\d{1,2})\s*(?:-|to|–)?\s*(\d{1,2})?\s*\+?\s*(?:hours?|hrs?)\b"
+    r"[^.;]{0,14}?(?:per\s*week|/\s*wk|/\s*week|a\s*week|each\s*week|weekly|pw)\b",
+    re.IGNORECASE,
+)
+
+
+def hours_per_week_from_text(text: str) -> float | None:
+    """Hours a listing explicitly states per week, if any.
+
+    A range takes its LOW end, matching how salary ranges are read: "20-30 hours"
+    is a commitment that may only be 20.
+    """
+    if not text:
+        return None
+    match = _HOURS_PER_WEEK_RE.search(text)
+    if not match:
+        return None
+    values = [float(g) for g in match.groups() if g]
+    values = [v for v in values if 1 <= v <= 80]
+    return min(values) if values else None
 
 _PERIOD_TO_MONTHLY = {
     "hour": DEFAULT_HOURS_FULL_TIME,
@@ -36,7 +61,10 @@ _PERIOD_TO_MONTHLY = {
 
 
 def normalize_salary_php(
-    salary: str, job_type: str = "", hours_per_month: float | None = None
+    salary: str,
+    job_type: str = "",
+    hours_per_month: float | None = None,
+    text: str = "",
 ) -> float | None:
     """Best-effort monthly-PHP figure for a listing's salary string.
 
@@ -47,10 +75,10 @@ def normalize_salary_php(
     """
     if not salary:
         return None
-    text = salary.replace(",", "").replace("–", "-").replace("—", "-")
-    low = text.lower()
+    cleaned = salary.replace(",", "").replace("–", "-").replace("—", "-")
+    low = cleaned.lower()
 
-    nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", text)]
+    nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", cleaned)]
     nums = [n for n in nums if n > 0]
     if not nums:
         return None
@@ -59,9 +87,9 @@ def normalize_salary_php(
     if re.search(r"\d\s*k\b", low):
         nums = [n * 1000 if n < 1000 else n for n in nums]
 
-    if "$" in text or "usd" in low:
+    if "$" in cleaned or "usd" in low:
         rate = USD_TO_PHP
-    elif "₱" in text or "php" in low or re.search(r"\bp\d", low):
+    elif "₱" in cleaned or "php" in low or re.search(r"\bp\d", low):
         rate = 1.0
     else:
         # No currency marker. PHP listings routinely write "25k-40k" bare, and
@@ -70,11 +98,14 @@ def normalize_salary_php(
 
     hours = hours_per_month
     if hours is None:
-        hours = (
-            DEFAULT_HOURS_PART_TIME
-            if "part" in (job_type or "").lower()
-            else DEFAULT_HOURS_FULL_TIME
-        )
+        # Prefer what the listing actually says over any assumption.
+        stated = hours_per_week_from_text(" ".join([text or "", salary or ""]))
+        if stated:
+            hours = stated * WEEKS_PER_MONTH
+        elif "part" in (job_type or "").lower():
+            hours = DEFAULT_HOURS_PART_TIME
+        else:
+            hours = DEFAULT_HOURS_FULL_TIME
 
     period = 1.0
     for key, mult in _PERIOD_TO_MONTHLY.items():
@@ -126,6 +157,12 @@ def check(job: dict, settings: dict) -> tuple[bool, str]:
             job.get("salary") or "",
             job_type=job.get("job_type") or "",
             hours_per_month=settings.get("hours_per_month"),
+            text=" ".join(
+                [
+                    job.get("title") or "",
+                    job.get("description_summary") or job.get("description") or "",
+                ]
+            ),
         )
         if value is None:
             if settings.get("drop_when_salary_unknown"):
