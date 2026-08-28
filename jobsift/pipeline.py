@@ -46,6 +46,11 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "url": strip_tracking_params((job.get("url") or "").strip()) or "N/A",
         "description_summary": job.get("description_summary") or job.get("description") or "N/A",
         "score": score["total"],
+        # How much the score was allowed to see. Stored on the row so a job can
+        # be re-read later without having to guess whether its number meant
+        # anything.
+        "evidence": score.get("evidence", "unknown"),
+        "evidence_chars": score.get("evidence_chars", 0),
         "degree_required": score.get("degree_required", "unknown"),
         "priority_bonus": score.get("priority_bonus", 0),
         "priority_hits": ", ".join(score.get("priority_hits") or []),

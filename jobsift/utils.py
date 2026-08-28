@@ -10,6 +10,35 @@ from bs4 import BeautifulSoup
 _URL_RE = re.compile(r"https?://\S+")
 _TOKEN_RE = re.compile(r"\[?URL(\d+)\]?", re.IGNORECASE)
 
+# Below this many characters of posting text, what we hold is an alert snippet
+# rather than a posting. Boards mail a teaser and keep the rest behind a click,
+# and some of those domains are deliberately never fetched (`skip_link_domains`),
+# so this is the normal case rather than an error.
+#
+# It matters because a snippet cannot support a judgement. One Indeed listing
+# carried 141 characters - "It requires research, planning, design, execution,
+# testing, communication, problem-solving, and the determination to finish what
+# was started" - and was scored 63/100 against a resume, over the alert
+# threshold. Nothing in the number said it was a guess.
+#
+# Shared, so the scorer and the drafter agree on what "enough to judge" means.
+SNIPPET_CHARS = 400
+
+
+def evidence_chars(job: dict) -> int:
+    """How much posting text is actually available to judge this job on.
+
+    Counts only the fields describing the WORK. Title, company and salary are
+    always present and say nothing about whether the role fits.
+    """
+    parts = [
+        str(job.get("description_summary") or job.get("description") or ""),
+        " ".join(str(item) for item in (job.get("requirements") or [])),
+        " ".join(str(item) for item in (job.get("skills_required") or [])),
+        " ".join(str(item) for item in (job.get("responsibilities") or [])),
+    ]
+    return len(" ".join(part for part in parts if part.strip()).strip())
+
 # Characters that routinely sit right after a URL in prose or in bracketed link
 # markup but are not part of it. \S+ above is greedy, so "[https://x/y]" would
 # otherwise capture the closing bracket and produce a URL that 400s.

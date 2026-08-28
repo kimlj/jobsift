@@ -38,17 +38,57 @@ class AnthropicLLM:
 
         self.client = anthropic.Anthropic(api_key=api_key)
 
-    def complete_json(self, model: str, system: str, user: str, max_tokens: int = 2000) -> dict:
+    def complete_json(
+        self, model: str, system: str, user: str, max_tokens: int = 2000,
+        cache_system: bool = False,
+    ) -> dict:
+        """`cache_system` marks the system prompt for prompt caching.
+
+        Worth it where the same system prompt goes out many times in a row,
+        which is exactly the scoring stage: one email batch scores every job it
+        found against the same rules and the same resume, and the resume is
+        nearly all of the request - 2,780 input tokens, of which the job itself
+        is about 90.
+
+        A cache read costs a tenth of the input price and a write costs 1.25x,
+        so it pays from the second call onward and is a small loss on a batch of
+        one. Entries live five minutes from the start of the request that writes
+        them: that covers a run, not the gap between runs, so the first job of
+        each run pays the write.
+
+        Only set this where the system prompt is byte-identical across calls.
+        Caching is a PREFIX match - one varying character anywhere in it (a
+        timestamp, a per-job instruction) and every call writes a fresh entry
+        instead of reading one, which costs more than not caching at all.
+        """
+        system_param = system
+        if cache_system:
+            system_param = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
+
         try:
             resp = self.client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=system,
+                system=system_param,
                 messages=[{"role": "user", "content": user}],
             )
         except Exception:
             logger.exception("Claude call failed (model=%s)", model)
             return {}
+
+        if cache_system:
+            # A silent zero here is the failure mode: no error, just full price
+            # on every call. Worth being able to see in the log.
+            usage = resp.usage
+            logger.debug(
+                "cache: %s written, %s read, %s uncached",
+                getattr(usage, "cache_creation_input_tokens", 0),
+                getattr(usage, "cache_read_input_tokens", 0),
+                usage.input_tokens,
+            )
+
         text = "".join(
             block.text for block in resp.content if getattr(block, "type", None) == "text"
         )
@@ -69,7 +109,13 @@ class OpenAILLM:
 
         self.client = OpenAI(api_key=api_key)
 
-    def complete_json(self, model: str, system: str, user: str, max_tokens: int = 2000) -> dict:
+    def complete_json(
+        self, model: str, system: str, user: str, max_tokens: int = 2000,
+        cache_system: bool = False,
+    ) -> dict:
+        # `cache_system` is accepted and ignored: OpenAI caches long prompt
+        # prefixes automatically with no parameter, so the two providers stay
+        # interchangeable from the caller's side.
         try:
             resp = self.client.chat.completions.create(
                 model=model,

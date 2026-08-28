@@ -28,7 +28,7 @@ priority_keywords: [ai, llm, llms, genai, generative ai, agentic, ai agent, rag,
                     machine learning, ml, nlp, computer vision, chatbot,
                     prompt engineering, langchain, openai, claude, automation,
                     workflow automation, n8n, zapier]
-priority_points: 12
+priority_points: 18
 
 # ── How much detail goes to Telegram ──
 # Telegram is a glanceable feed, not the archive. The FULL description and
@@ -128,11 +128,25 @@ skip_link_domains:
 scrape_sources:
   onlinejobs_ph:
     enabled: false
-    max_pages: 3          # 30 listings per page
+    max_pages: 2          # 30 listings/page; one page is only ~20h of a broad keyword
     delay_seconds: 5      # the site's robots.txt Crawl-delay; lower values are ignored
-    # Unlike an email alert, this board has no server-side filter we can drive from
-    # a URL — every page returns the whole listing. So the filtering happens here,
-    # matched as whole words against title + skills, BEFORE the scoring call.
+    # search_keywords drives the site's own search (?jobkeyword=), one pass per
+    # term, deduped on URL. Without it the reader pages through the unfiltered
+    # firehose — one such page was ten Meta-Ads video editors and a payroll
+    # professional, and kept 1 job in 30. Ask for "python" instead and the same
+    # page offers Senior Web Developer and Game AI Engineer. Fewer requests,
+    # more of what you want.
+    #
+    # The site's search is generous (asking for "python" still returns a Shopify
+    # admin assistant), so include/exclude below is the second gate, matched as
+    # whole words against the TITLE ONLY, before any scoring call or detail
+    # fetch. It deliberately ignores the card's skill tags: those are employer
+    # marketing labels, and "Web Design & Page Layout" on a $8/hour design gig
+    # passes a list meant to catch web developers.
+    #
+    # fetch_details reads each KEPT job's detail page (paced the same 5s) for the
+    # full posting. Card text is ~300 chars; the posting is ~5,000. This is what
+    # makes exclude_degree_required work — the degree sentence is only there.
     #
     # include_keywords is a WHITELIST: a job must match one of these or it is
     # dropped. (Empty list = keep everything and pay to score every VA job.)
@@ -141,6 +155,9 @@ scrape_sources:
     # entry" here does nothing, because no include word matches a data entry job
     # in the first place. Put the words here that broad include terms let through:
     # "software" catches "Mozaik Software", "web" catches "Web Content Writer".
+    fetch_details: true
+    search_keywords: [developer, engineer, full stack, react, node, python,
+                      javascript, laravel, api, automation]
     include_keywords: [developer, engineer, full stack, fullstack, backend, front end,
                        frontend, web, software, react, node, python, javascript, api]
     exclude_keywords: [drafter, furniture, cad, autocad, content writer, copywriter,

@@ -61,12 +61,30 @@ _PERIOD_TO_MONTHLY = {
 }
 
 
+# Which currency a bare, unmarked number means, per source. PH job boards quote
+# pesos; onlinejobs.ph is an international marketplace that pays Filipinos in
+# USD and routinely writes "1000+", "600" or "12-20/hr." with no symbol at all.
+#
+# Reading those as pesos threw away the best jobs on the board silently: "10/hr"
+# scored as 1,600 PHP/month instead of 92,800, and "12-20/hr." as 1,920 instead
+# of 111,360 - both then dropped for falling under a 50,000 floor they clear
+# several times over. Nothing logged a problem, because nothing was wrong except
+# the assumed unit.
+BARE_NUMBER_CURRENCY = {"onlinejobs_ph": "USD", "virtualstaff_ph": "USD"}
+
+
+def currency_for(job: dict) -> str:
+    """The currency an unmarked number means for this job's source."""
+    return BARE_NUMBER_CURRENCY.get(str(job.get("source") or ""), "PHP")
+
+
 def normalize_salary_php(
     salary: str,
     job_type: str = "",
     hours_per_month: float | None = None,
     text: str = "",
     usd_to_php: float | None = None,
+    default_currency: str = "PHP",
 ) -> float | None:
     """Best-effort monthly-PHP figure for a listing's salary string.
 
@@ -79,6 +97,12 @@ def normalize_salary_php(
         return None
     cleaned = salary.replace(",", "").replace("–", "-").replace("—", "-")
     low = cleaned.lower()
+
+    # A bare "5 Hours" is a shift length typed into the salary box, not a rate.
+    # Read as a salary it becomes 5 pesos and drops the job for being underpaid.
+    # A real rate always carries "per hour" or "/hr" alongside the number.
+    if re.fullmatch(r"\s*\d+(?:\.\d+)?\s*(?:hours?|hrs?)\s*", low):
+        return None
 
     nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", cleaned)]
     nums = [n for n in nums if n > 0]
@@ -94,9 +118,10 @@ def normalize_salary_php(
     elif "₱" in cleaned or "php" in low or re.search(r"\bp\d", low):
         rate = 1.0
     else:
-        # No currency marker. PHP listings routinely write "25k-40k" bare, and
-        # this project's boards are PH-centric, so assume PHP rather than guess.
-        rate = 1.0
+        # No currency marker: fall back to what this SOURCE quotes in. PH email
+        # boards write "25k-40k" meaning pesos; onlinejobs.ph writes "1000+"
+        # meaning dollars. Guessing one global default is what broke this.
+        rate = float(usd_to_php or USD_TO_PHP) if default_currency == "USD" else 1.0
 
     hours = hours_per_month
     if hours is None:
@@ -170,6 +195,7 @@ def check(job: dict, settings: dict) -> tuple[bool, str]:
             job_type=job.get("job_type") or "",
             hours_per_month=settings.get("hours_per_month"),
             usd_to_php=settings.get("usd_to_php"),
+            default_currency=currency_for(job),
             text=" ".join(
                 [
                     job.get("title") or "",

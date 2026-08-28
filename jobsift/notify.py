@@ -73,6 +73,16 @@ def send_telegram(bot_token: str, chat_id: str, record: dict, options: dict | No
         f"Pay {_esc(record.get('interest_fit'))}</i>",
     ]
 
+    # Say so when the score was read off a teaser. Only the pay component is
+    # solid there - it comes from the stated salary and is computed in code -
+    # while skills and experience were judged on a couple of sentences. Without
+    # this the alert reads as a verdict when it is a shortlist entry.
+    if record.get("evidence") == "snippet":
+        lines.append(
+            f"⚠️ <i>scored on a {_esc(record.get('evidence_chars'))}-char alert snippet, "
+            f"not the full posting — open the link before trusting this</i>"
+        )
+
     matching = _esc(record.get("matching_skills"))
     if _has(matching):
         lines.append(f"✅ {_clip(matching, MAX_SKILLS)}")
