@@ -14,13 +14,6 @@ def _esc(value) -> str:
     return html.escape(str(value or "").strip())
 
 
-def _short_source(url: str) -> str:
-    """A readable label for the link instead of a 300-character tracking URL."""
-    host = url.split("//", 1)[-1].split("/", 1)[0].lower()
-    host = host[4:] if host.startswith("www.") else host
-    return host or "listing"
-
-
 def send_telegram(bot_token: str, chat_id: str, record: dict) -> None:
     url = str(record.get("url") or "").strip()
     skills = _esc(record.get("matching_skills"))
@@ -37,9 +30,12 @@ def send_telegram(bot_token: str, chat_id: str, record: dict) -> None:
     if skills and skills != "N/A":
         lines.append(f"✅ {skills[:180]}")
     if url.startswith("http"):
-        # Anchor text keeps the message short — Telegram renders the label, not
-        # the URL, and these boards use 300-char tracking links.
-        lines.append(f"\n<a href=\"{_esc(url)}\">Open on {_esc(_short_source(url))} →</a>")
+        # Always a bare URL, never <a href>. Telegram prompts "Open link?" before
+        # following a link whose anchor text hides the destination, so an anchor
+        # costs a tap on every single alert. enrich already resolves tracking
+        # redirects and strips referral params, so these are short anyway.
+        lines.append("")
+        lines.append(_esc(url))
 
     try:
         resp = httpx.post(
