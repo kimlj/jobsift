@@ -52,7 +52,39 @@ def _compute_salary_score(job: dict, baseline: float = 70000.0) -> int:
     return round(value / baseline * 20)
 
 
-def score_job(llm, model: str, job: dict, resume: str, baseline: float = 70000.0) -> dict:
+def priority_bonus(job: dict, keywords: list[str], bonus: int) -> tuple[int, list[str]]:
+    """Extra points for the kind of work you actively want.
+
+    The LLM scores fit against the resume, which rewards a job you *can* do —
+    not necessarily one you *want*. This is the deliberate thumb on the scale.
+    Matched whole-word against title, skills and description.
+    """
+    if not keywords or not bonus:
+        return 0, []
+    haystack = " ".join(
+        [
+            job.get("title") or "",
+            " ".join(job.get("skills_required") or []),
+            job.get("description_summary") or job.get("description") or "",
+        ]
+    ).lower()
+    hits = [
+        kw
+        for kw in keywords
+        if kw and re.search(rf"(?<!\w){re.escape(str(kw).lower().strip())}(?!\w)", haystack)
+    ]
+    return (int(bonus) if hits else 0), hits
+
+
+def score_job(
+    llm,
+    model: str,
+    job: dict,
+    resume: str,
+    baseline: float = 70000.0,
+    priority_keywords: list | None = None,
+    priority_points: int = 0,
+) -> dict:
     system = SYSTEM_TEMPLATE.format(resume=resume)
     user = (
         "Score this job:\n"
@@ -69,9 +101,13 @@ def score_job(llm, model: str, job: dict, resume: str, baseline: float = 70000.0
     skills_score = int(data.get("skills_score", 0) or 0)
     experience_score = int(data.get("experience_score", 0) or 0)
     salary_score = _compute_salary_score(job, baseline)
-    total = skills_score + experience_score + salary_score
+    bonus, hits = priority_bonus(job, priority_keywords or [], priority_points)
+    # Capped so a bonus cannot push a job past a perfect score.
+    total = min(100, skills_score + experience_score + salary_score + bonus)
 
     return {
+        "priority_bonus": bonus,
+        "priority_hits": hits,
         "skills_score": skills_score,
         "experience_score": experience_score,
         "salary_score": salary_score,

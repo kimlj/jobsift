@@ -47,6 +47,9 @@ class Config:
     resume_path: str
     models: dict
     telegram_enabled: bool
+    priority_keywords: list = field(default_factory=list)
+    priority_points: int = 0
+    telegram_options: dict = field(default_factory=dict)
     scrape_sources: dict = field(default_factory=dict)
     filters: dict = field(default_factory=dict)
     google_sheet: GoogleSheetConfig = field(default_factory=GoogleSheetConfig)
@@ -98,6 +101,9 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         skip_link_domains=list(data.get("skip_link_domains") or []),
         score_threshold=int(data.get("score_threshold", 60)),
         salary_baseline_php=int(data.get("salary_baseline_php", 70000)),
+        priority_keywords=list(data.get("priority_keywords") or []),
+        priority_points=int(data.get("priority_points", 0)),
+        telegram_options=dict(data.get("telegram") or {}),
         database_path=str(data.get("database_path", "./data/jobs.db")),
         resume_path=str(data.get("resume_path", "./resume.txt")),
         models=dict(data.get("models") or {}),

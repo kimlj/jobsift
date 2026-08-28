@@ -56,7 +56,7 @@ def main() -> None:
         from .notify import send_telegram
 
         telegram_send = lambda record: send_telegram(
-            config.telegram_bot_token, config.telegram_chat_id, record
+            config.telegram_bot_token, config.telegram_chat_id, record, config.telegram_options
         )
         log.info("Telegram alerts enabled (threshold %d)", config.score_threshold)
 

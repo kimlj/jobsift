@@ -13,9 +13,13 @@ logger = logging.getLogger(__name__)
 # Limits chosen from the real distribution of these fields, so the common case is
 # never truncated: description tops out near 161 chars, matching/missing skills
 # near 257, and reasoning has a median of ~606 with a p90 of ~765.
-MAX_DESCRIPTION = 400
+# Telegram is a glanceable feed, not the archive: the full reasoning and
+# description always stay in SQLite (and the Sheet) for writing outreach. These
+# are only how much is worth reading on a phone, and are overridable per-user
+# from the telegram: block in config.yaml.
+MAX_DESCRIPTION = 200
 MAX_SKILLS = 280
-MAX_REASONING = 900
+MAX_REASONING = 200
 
 _SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
 
@@ -48,11 +52,19 @@ def _has(value: str) -> bool:
     return bool(value) and value != "N/A"
 
 
-def send_telegram(bot_token: str, chat_id: str, record: dict) -> None:
+def send_telegram(bot_token: str, chat_id: str, record: dict, options: dict | None = None) -> None:
+    options = options or {}
+    max_desc = int(options.get("description_chars", MAX_DESCRIPTION))
+    max_why = int(options.get("reasoning_chars", MAX_REASONING))
+    show_missing = options.get("show_missing_skills", True)
+
     url = str(record.get("url") or "").strip()
 
+    # A priority match is flagged so it is spottable while scrolling.
+    flag = "⚡ " if record.get("priority_bonus") else ""
+
     lines = [
-        f"<b>{_esc(record.get('score'))}/100</b> · {_esc(record.get('job_title'))}",
+        f"{flag}<b>{_esc(record.get('score'))}/100</b> · {_esc(record.get('job_title'))}",
         f"🏢 {_esc(record.get('company'))}",
         f"💰 {_esc(record.get('salary'))}",
         "",
@@ -66,17 +78,17 @@ def send_telegram(bot_token: str, chat_id: str, record: dict) -> None:
         lines.append(f"✅ {_clip(matching, MAX_SKILLS)}")
 
     missing = _esc(record.get("missing_skills"))
-    if _has(missing):
+    if show_missing and _has(missing):
         lines.append(f"❌ {_clip(missing, MAX_SKILLS)}")
 
     summary = _esc(record.get("description_summary"))
     if _has(summary):
         lines.append("")
-        lines.append(f"📝 {_clip(summary, MAX_DESCRIPTION)}")
+        lines.append(f"📝 {_clip(summary, max_desc)}")
 
     why = _esc(record.get("reasoning"))
-    if _has(why):
-        lines.append(f"🧠 <i>{_clip(why, MAX_REASONING)}</i>")
+    if max_why and _has(why):
+        lines.append(f"🧠 <i>{_clip(why, max_why)}</i>")
 
     if url.startswith("http"):
         # Always a bare URL, never <a href>. Telegram prompts "Open link?" before

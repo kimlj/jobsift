@@ -46,6 +46,8 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "url": strip_tracking_params((job.get("url") or "").strip()) or "N/A",
         "description_summary": job.get("description_summary") or job.get("description") or "N/A",
         "score": score["total"],
+        "priority_bonus": score.get("priority_bonus", 0),
+        "priority_hits": ", ".join(score.get("priority_hits") or []),
         "skill_match": f"{score['skills_score']}/30",
         "experience_fit": f"{score['experience_score']}/30",
         "interest_fit": f"{score['salary_score']}/40",
@@ -94,7 +96,10 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
                 continue
 
             job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
-            score = score_job(llm, config.models["score"], job, resume, config.salary_baseline_php)
+            score = score_job(
+            llm, config.models["score"], job, resume, config.salary_baseline_php,
+                config.priority_keywords, config.priority_points,
+            )
             record = _build_record(job, score, source, msg["date"])
 
             store.save_job(key, record)
@@ -128,7 +133,10 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
 
         source = job.get("source") or "scraped"
         job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
-        score = score_job(llm, config.models["score"], job, resume, config.salary_baseline_php)
+        score = score_job(
+            llm, config.models["score"], job, resume, config.salary_baseline_php,
+                config.priority_keywords, config.priority_points,
+            )
         record = _build_record(job, score, source, job.get("posted") or "")
 
         store.save_job(key, record)

@@ -18,6 +18,28 @@ lookback_days: 1
 # an extract call plus enrich + score per job found. Lower this if that matters.
 first_run_lookback_days: 7
 
+# ── Work you actively WANT, not just work you can do ──
+# The model scores fit against your resume, which rewards anything you're
+# qualified for. This is the deliberate thumb on the scale: a whole-word match
+# against title, skills or description adds priority_points to the total
+# (capped at 100) and marks the alert with a lightning bolt.
+# Note "agent" is absent on purpose - it would match "Customer Service Agent".
+priority_keywords: [ai, llm, llms, genai, generative ai, agentic, ai agent, rag,
+                    machine learning, ml, nlp, computer vision, chatbot,
+                    prompt engineering, langchain, openai, claude, automation,
+                    workflow automation, n8n, zapier]
+priority_points: 12
+
+# ── How much detail goes to Telegram ──
+# Telegram is a glanceable feed, not the archive. The FULL description and
+# reasoning are always kept in the database (and the Sheet if enabled) for
+# writing outreach - these limits only control what lands on your phone.
+# Truncation falls on a sentence boundary. Set reasoning_chars: 0 to omit it.
+telegram:
+  description_chars: 200
+  reasoning_chars: 200
+  show_missing_skills: true
+
 # ── Hard filters (applied to EVERY source, before the LLM sees the job) ──
 # Scoring is soft: salary is only 40 of 100 points, so a strong skills match can
 # push a low-paying job past score_threshold. These rules drop a job outright,
