@@ -47,6 +47,44 @@ running continuously** — runs are manual (`--once`) until the systemd unit is 
       is 7. The DB is no longer fresh, so the backfill will not re-trigger — wipe
       `data/jobs.db` first if a clean full backfill is wanted when going live.
 
+## Filtering & alerts (done 2026-08-28)
+
+- [x] Hard filters in `filters.py`, applied to every source BEFORE enrich/score so a
+      rejected job costs nothing: exclude_companies (50 named PH BPOs, whole-word),
+      exclude_titles (jr/junior/intern/...), min_salary_php.
+- [x] One salary normaliser returning monthly PHP. Fixed real bugs: "PHP 180,000 -
+      350,000 a year" (15k/mo) had been scoring a full 40/40 as if monthly and was the
+      top alert at 82; peso-symbol and weekly listings silently fell back to the
+      10-point "unknown" default. Ranges read their LOW end.
+- [x] Hourly conversion follows hours the listing states ("30 hrs per week"), falling
+      back to 40h/week, or 20h/week when tagged part-time. Note: measured on the real
+      db, 0 of 149 listings state hours and only 3 quote hourly — this matters for
+      onlinejobs.ph and remote boards, not for Indeed/Jobstreet PH.
+- [x] Telegram: bare URLs only. Tested four variants against a real client — plain URL
+      with or without HTML parse mode opens directly; only <a href> triggers the
+      "Open link?" confirmation. HTML formatting kept.
+- [x] enrich resolves tracking redirects and strips referral params, so a Jobstreet
+      link is 37 chars instead of 286. Job-identifying params (Indeed's "jk") kept.
+- [x] iOS "open in app" on jobstreet links: `/job/*` is a registered Universal Link in
+      their apple-app-site-association, so nothing sender-side avoids it. Resolved on
+      the device via the status-bar breadcrumb, which sets a persistent per-domain
+      preference. Confirmed working. If it ever regresses, the fallback is a
+      `resolve_redirects: false` flag to keep links on the non-registered
+      url.jobstreet.com host, at the cost of 286-char URLs.
+- [x] usd_to_php and salary_baseline_php moved out of code into config.
+
+## Open questions
+
+- [ ] `drop_when_salary_unknown` is false, so listings with no stated salary bypass the
+      floor entirely — 5 of the 15 current survivors are unpriced. Flipping it enforces
+      a hard floor but loses every listing that does not publish pay, which on Indeed
+      is a large share.
+- [ ] Cloudstaff, Emapta and Pointwest are in exclude_companies but are staff-leasing /
+      software services rather than call-centre BPO, and pay competitively for dev
+      roles. By the "fine as long as they pay well" rule they arguably belong out.
+- [ ] config.example.yaml ships min_salary_php 40000; the live config is 50000. Kept
+      apart so personal numbers are not the project default.
+
 ## Scrape sources
 
 - [x] `jobsift/sources/` adapter layer — opt-in, off by default, emits the same job
