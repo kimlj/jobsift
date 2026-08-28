@@ -50,6 +50,9 @@ candidate fits this posting, and do not pad with enthusiasm.
   name the nearest genuine experience.
 - 150-250 words, plain prose, no markdown, ready to paste into an email or a form.
 - Follow any special_instructions you found (opening word, phrasing) inside the letter.
+- End on your closing sentence. Do NOT write a sign-off, a name, or contact details:
+  no "Yours truly", no "Best regards", no email address, no links. Those are appended
+  afterwards from the candidate's own file, so anything you add here is a duplicate.
 
 EMPLOYER QUESTIONS
 Extract every question the posting asks - screening questions, "answer these in your
@@ -70,6 +73,93 @@ Return raw JSON only, no markdown:
 {"apply_method": "", "apply_email": "", "special_instructions": [], "cover_letter": "",
  "questions": [{"question": "", "answer": "", "source": "", "needs_input": false}],
  "missing_from_profile": []}"""
+
+
+# A sign-off exists so somebody can reach you without scrolling - not to reprint
+# the resume header that is already attached. So the default is short, and the
+# omissions are deliberate:
+#   email    - the message is being sent FROM it, and a form has its own field
+#   github   - a portfolio site links to it; two links compete for one click
+#   linkedin - on the resume, and rarely the thing a hiring manager opens first
+# Override per-candidate with `signoff_fields:` in profile.yaml, e.g.
+#   signoff_fields: [phone, portfolio, linkedin]
+# Listing a field that is blank in the profile still prints nothing.
+DEFAULT_SIGNOFF_FIELDS = ["phone", "portfolio"]
+
+SIGNOFF_LABELS = {
+    "email": "",
+    "phone": "",
+    "portfolio": "Portfolio: ",
+    "github": "GitHub: ",
+    "linkedin": "LinkedIn: ",
+}
+
+
+def signoff(profile: dict) -> str:
+    """Build the closing from profile.yaml instead of asking the model for it.
+
+    A sign-off is the one part of a letter with nothing to compose: the same name
+    and the same links every time. Left to the model it came out differently each
+    run and sometimes not at all - and a hallucinated portfolio URL is worse than
+    a missing one, because it looks right and 404s for the employer rather than
+    for you.
+
+    Only fields actually present are printed, so a blank `github:` produces
+    nothing rather than a dangling label.
+    """
+    name = str(profile.get("name") or "").strip()
+    lines = ["Yours truly,", name] if name else []
+
+    # `or` would be wrong here: an explicit `signoff_fields: []` means "name only"
+    # and must not fall back to the default the way a missing key does.
+    fields = profile.get("signoff_fields")
+    if fields is None:
+        fields = DEFAULT_SIGNOFF_FIELDS
+    details = [
+        f"{SIGNOFF_LABELS.get(field, '')}{str(profile.get(field)).strip()}"
+        for field in fields
+        if str(profile.get(field) or "").strip()
+    ]
+
+    if details:
+        if lines:
+            lines.append("")
+        lines.extend(details)
+    return "\n".join(lines)
+
+
+# Closings the model reaches for anyway, despite being told not to. Matched on a
+# line of its own, so a letter that happens to contain the word "regards" mid
+# sentence is untouched.
+_CLOSINGS = (
+    "yours truly", "yours sincerely", "sincerely", "best regards", "kind regards",
+    "warm regards", "regards", "best", "thank you", "thanks", "respectfully",
+)
+
+
+def _with_signoff(letter: str, profile: dict) -> str:
+    """Attach the built sign-off, replacing any the model wrote despite the prompt.
+
+    Told not to sign off, a model usually complies - but "usually" is the problem
+    with prompt-only rules, and the failure here is a letter carrying two closings.
+    So anything from a trailing closing line onward is dropped before appending.
+    Only the tail is examined: the cut is anchored to a closing that is the whole
+    line, in the last few lines, so body prose cannot be truncated.
+    """
+    block = signoff(profile)
+    if not letter:
+        return block
+    if not block:
+        return letter
+
+    lines = letter.rstrip().split("\n")
+    for i in range(max(0, len(lines) - 4), len(lines)):
+        candidate = lines[i].strip().rstrip(",.").lower()
+        if candidate in _CLOSINGS:
+            lines = lines[:i]
+            break
+
+    return "\n".join(lines).rstrip() + "\n\n" + block
 
 
 def draft_application(llm, model: str, job: dict, resume: str, profile: dict) -> dict:
@@ -107,7 +197,7 @@ def draft_application(llm, model: str, job: dict, resume: str, profile: dict) ->
         "apply_method": str(data.get("apply_method") or "unknown"),
         "apply_email": str(data.get("apply_email") or ""),
         "special_instructions": [str(s) for s in (data.get("special_instructions") or [])],
-        "cover_letter": str(data.get("cover_letter") or "").strip(),
+        "cover_letter": _with_signoff(str(data.get("cover_letter") or "").strip(), profile),
         "questions": questions,
         "missing_from_profile": [str(s) for s in (data.get("missing_from_profile") or [])],
         "_posting_chars": len(description),
