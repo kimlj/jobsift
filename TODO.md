@@ -5,19 +5,20 @@ running continuously** — runs are manual (`--once`) until the systemd unit is 
 
 ## Waiting on external
 
-- [ ] **Working Nomads** — subscribed 2026-08-28 (Development only, Daily, Anywhere+APAC+PH,
-      Mid/Senior, Full-time + Contract). When the first email lands, read its `From`
-      domain and add it to `known_senders`. Do not guess the domain: Jobstreet turned
-      out to be `e.jobstreet.com`, Indeed `jobalert.indeed.com`.
+- [x] **Working Nomads** — subscribed 2026-08-28 (Development only, Daily, Anywhere+APAC+PH,
+      Mid/Senior, Full-time + Contract). Welcome email arrived from `hello@workingnomads.com`;
+      `workingnomads.com` added to `known_senders`. Still to confirm: that the daily
+      *digest* arrives and extracts cleanly — only the welcome email has been seen so far.
 - [ ] Consider We Work Remotely and Remotive — both are pure email digests, no profile needed.
 
 ## Code
 
-- [ ] **Narrow the LinkedIn sender.** `known_senders` matches bare `linkedin.com`, which
-      swallows all four LinkedIn senders. Only `jobs-noreply@linkedin.com` carries job
-      alerts; the other ~75% is profile-view and feed noise being sent to the LLM for
-      nothing. `classify()` substring-matches the full sender, so the fix is to use
-      `jobs-noreply@linkedin.com` as the key.
+- [x] **Narrow the LinkedIn sender.** Key is now `jobs-noreply@linkedin.com`, so
+      `messages-noreply` and `notifications-noreply` are correctly ignored.
+      Note: `updates-noreply` ("Louise posted: WE'RE HIRING...") still slips through via
+      the `hiring` subject keyword. Decide whether to drop `hiring` from
+      `job_subject_keywords` — it is the loosest one, but it is also the fallback that
+      catches boards not yet in `known_senders`.
 - [ ] **`--suggest-senders` flag.** Report inbox senders that are NOT in `known_senders`
       but look job-shaped, so a new user isn't guessing what to put in their config.
       This is the worst onboarding gap in the project.

@@ -24,13 +24,14 @@ first_run_lookback_days: 7
 #   domain: label      (label becomes the job's "source")
 known_senders:
   indeed.com: indeed
-  linkedin.com: linkedin
+  jobs-noreply@linkedin.com: linkedin   # only LinkedIn sender carrying job alerts
   foundit.com: foundit
   jobstreet.com: jobstreet
   kalibrr.com: kalibrr
   bossjob.ph: bossjob
   remotive.com: remotive
   weworkremotely.com: weworkremotely
+  workingnomads.com: workingnomads
   onlinejobs.ph: onlinejobs_ph
   virtualstaff.ph: virtualstaff_ph
 
