@@ -47,6 +47,19 @@ def _run_draft(args, config) -> None:
 
     row = rows[0]
     job = json.loads(row["data"]) if row["data"] else {}
+
+    if args.posting:
+        import sys
+
+        text = sys.stdin.read() if args.posting == "-" else open(args.posting, encoding="utf-8").read()
+        text = text.strip()
+        if text:
+            # The full posting replaces the stored snippet outright: it is the same
+            # content, only complete, and the instructions we most need sit at its end.
+            job["description_summary"] = text
+            job["description"] = text
+            origin = "stdin" if args.posting == "-" else args.posting
+            print(f"(using {len(text)} chars of posting text from {origin})\n")
     job.setdefault("job_title", row["title"])
     job.setdefault("company", row["company"])
     job.setdefault("score", row["score"])
@@ -73,6 +86,13 @@ def main() -> None:
              "Prints a cover letter and proposed answers for review; sends nothing.",
     )
     parser.add_argument("--profile", default="profile.yaml", help="Path to profile.yaml")
+    parser.add_argument(
+        "--posting",
+        metavar="FILE",
+        help="File holding the FULL posting text (use '-' for stdin). Alert emails carry a "
+             "truncated snippet and Indeed blocks fetching the page, so paste the real "
+             "posting here to draft against everything the employer actually wrote.",
+    )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--env", default=".env", help="Path to .env")
     args = parser.parse_args()

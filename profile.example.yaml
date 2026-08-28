@@ -15,7 +15,8 @@ linkedin: https://linkedin.com/in/yourhandle
 
 # Education. Be accurate — this answers "do you have a degree" questions.
 education:
-  highest: none          # none | vocational | associate | bachelor | master
+  highest: none          # none | some_college | vocational | associate | bachelor | master
+  completed: false
   field: ""
   school: ""
   graduated_year: null
@@ -36,6 +37,7 @@ experience:
 # Commitments, not facts — these are decisions, so state them yourself.
 compensation:
   expected_monthly_php: 80000
+  expected_range_php: [70000, 90000]
   negotiable: true
 availability:
   notice_period_days: 0

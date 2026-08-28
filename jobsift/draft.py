@@ -98,7 +98,7 @@ def draft_application(llm, model: str, job: dict, resume: str, profile: dict) ->
         f"JOB POSTING:\n{posting}"
     )
 
-    data = llm.complete_json(model, SYSTEM, user, max_tokens=2500)
+    data = llm.complete_json(model, SYSTEM, user, max_tokens=6000)
     if not isinstance(data, dict):
         return {}
 
