@@ -63,11 +63,19 @@ scrape_sources:
     delay_seconds: 5      # the site's robots.txt Crawl-delay; lower values are ignored
     # Unlike an email alert, this board has no server-side filter we can drive from
     # a URL — every page returns the whole listing. So the filtering happens here,
-    # matched against title + skills, and it runs BEFORE the scoring call. Leave
-    # include_keywords empty to keep everything (and pay to score every VA job).
+    # matched as whole words against title + skills, BEFORE the scoring call.
+    #
+    # include_keywords is a WHITELIST: a job must match one of these or it is
+    # dropped. (Empty list = keep everything and pay to score every VA job.)
+    # exclude_keywords only ever fires on jobs that ALREADY passed include — it is
+    # the override for false positives, not a general junk filter. Listing "data
+    # entry" here does nothing, because no include word matches a data entry job
+    # in the first place. Put the words here that broad include terms let through:
+    # "software" catches "Mozaik Software", "web" catches "Web Content Writer".
     include_keywords: [developer, engineer, full stack, fullstack, backend, front end,
                        frontend, web, software, react, node, python, javascript, api]
-    exclude_keywords: [video editor, appointment setter, cold caller, data entry]
+    exclude_keywords: [drafter, furniture, cad, autocad, content writer, copywriter,
+                       video editor, bookkeeper]
 
 # Send a Telegram alert when a job's total score is at least this (out of 100)
 score_threshold: 60
