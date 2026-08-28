@@ -15,6 +15,12 @@ poll Gmail (IMAP) → find job emails (known senders / keywords)
 You subscribe to job alerts on each board once (Indeed, LinkedIn, Foundit, Jobstreet,
 remote & PH boards…), point them at one Gmail, and the script does the rest.
 
+Some boards offer no email alerts at all. For those there is an **optional, opt-in
+source adapter** (`jobsift/sources/`) that reads a public listing directly — off by
+default, paced to the site's robots.txt `Crawl-delay`. Email remains the default and
+the recommended path; read a board's Terms of Service before enabling an adapter,
+since some prohibit automated access regardless of what their robots.txt allows.
+
 ## Why email-ingestion beats scraping
 
 Every board already offers email alerts. Subscribing gives you a clean, structured feed
@@ -62,6 +68,8 @@ jobsift/            the app
   sheets.py             optional Google Sheet output
   notify.py             optional Telegram output
   pipeline.py           orchestration
+  sources/              optional non-email sources (opt-in, off by default)
+    onlinejobs.py       onlinejobs.ph public listing reader
 config.example.yaml     copy to config.yaml
 .env.example            copy to .env
 reference/              the original n8n workflow, kept as the design blueprint

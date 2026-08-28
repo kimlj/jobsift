@@ -49,6 +49,25 @@ job_subject_keywords:
 skip_link_domains:
   - upwork.com
   - indeed.com
+  - onlinejobs.ph   # read via the scrape source below, which paces its own requests
+
+# ── Optional non-email sources (OFF by default) ──
+# The email path is the default and the point of this project: boards email you,
+# so nothing has to be scraped. These exist only for boards that offer no email
+# alerts at all. Enable deliberately, and read the board's Terms of Service first
+# — some prohibit automated access regardless of what their robots.txt allows.
+scrape_sources:
+  onlinejobs_ph:
+    enabled: false
+    max_pages: 3          # 30 listings per page
+    delay_seconds: 5      # the site's robots.txt Crawl-delay; lower values are ignored
+    # Unlike an email alert, this board has no server-side filter we can drive from
+    # a URL — every page returns the whole listing. So the filtering happens here,
+    # matched against title + skills, and it runs BEFORE the scoring call. Leave
+    # include_keywords empty to keep everything (and pay to score every VA job).
+    include_keywords: [developer, engineer, full stack, fullstack, backend, front end,
+                       frontend, web, software, react, node, python, javascript, api]
+    exclude_keywords: [video editor, appointment setter, cold caller, data entry]
 
 # Send a Telegram alert when a job's total score is at least this (out of 100)
 score_threshold: 60

@@ -47,6 +47,22 @@ running continuously** — runs are manual (`--once`) until the systemd unit is 
       is 7. The DB is no longer fresh, so the backfill will not re-trigger — wipe
       `data/jobs.db` first if a clean full backfill is wanted when going live.
 
+## Scrape sources
+
+- [x] `jobsift/sources/` adapter layer — opt-in, off by default, emits the same job
+      dicts the extractor does so dedup/enrich/score/notify are unchanged.
+- [x] onlinejobs.ph adapter. Notes: the site serves a listing-less page on the first
+      request of a session and the populated one on a repeat, so one paced retry is
+      required, not optional. It exposes no server-side filter drivable from a URL
+      (`?jobkeyword=` is ignored; the form is JS-driven and there is no JSON API on
+      either the classic or v2 site), so keyword filtering happens in the adapter,
+      before the scoring call. On a live run: 90 listings read, 5 kept.
+- [ ] Decide whether onlinejobs.ph earns its keep. It is VA/marketing-heavy — the one
+      job scored end-to-end came back 15/100. Revisit after a week of real results.
+- [ ] ToS note: clause 7.4 prohibits automated access without express permission.
+      Enabled anyway as a deliberate personal-use decision (public pages only, 5s
+      delay, no redistribution). Asking them for permission remains the clean path.
+
 ## Do NOT add to known_senders
 
 Verified against real inbox subjects — these send mail but no job listings:

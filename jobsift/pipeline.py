@@ -9,6 +9,7 @@ from .classify import classify
 from .enrich import enrich_job
 from .extract import extract_jobs
 from .score import score_job
+from .sources import collect as collect_scraped
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,12 @@ logger = logging.getLogger(__name__)
 def _job_key(job: dict) -> str:
     title = (job.get("title") or "").strip()
     company = (job.get("company") or "").strip()
+    if not company:
+        # Some sources (onlinejobs.ph listings) never name the employer. Falling
+        # back to the URL slug keeps two different postings that share a title
+        # from collapsing into one entry.
+        url = (job.get("url") or "").strip().rstrip("/")
+        company = url.rsplit("/", 1)[-1][:80] if url else ""
     return f"{title}::{company}".lower()
 
 
@@ -98,6 +105,33 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
             logger.info("  saved: %s @ %s — %s/100", record["job_title"], record["company"], record["score"])
 
         store.mark_email_processed(msg["uid"])
+
+    # Optional non-email sources (opt-in, off by default). They emit the same job
+    # dicts the extractor does, so they reuse the identical tail of the pipeline.
+    for job in collect_scraped(config):
+        key = _job_key(job)
+        if key == "::" or store.is_job_seen(key):
+            continue
+        store.mark_job_seen(key)
+
+        source = job.get("source") or "scraped"
+        job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
+        score = score_job(llm, config.models["score"], job, resume)
+        record = _build_record(job, score, source, job.get("posted") or "")
+
+        store.save_job(key, record)
+        handled += 1
+
+        if sheet is not None:
+            try:
+                sheet.append(record)
+            except Exception:
+                logger.exception("Sheet append failed for %s", record.get("job_title"))
+
+        if telegram_send is not None and record["score"] >= config.score_threshold:
+            telegram_send(record)
+
+        logger.info("  saved: %s @ %s — %s/100", record["job_title"], record["company"], record["score"])
 
     store.cleanup()
     return handled
