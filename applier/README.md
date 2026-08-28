@@ -53,6 +53,52 @@ Consequence: the applier is a *separate* stage with a *different* transport. It 
 not be wired into the poll loop. Discovery stays cheap, headless and unattended;
 applying is a deliberate, human-present action over a handful of jobs.
 
+## Why the applier cannot run on the VPS
+
+Asked and measured, so it does not get re-litigated:
+
+1. **Memory.** The box has 961 MB with ~382 MB available and is already 514 MB into
+   swap, alongside dockerd, two node processes, PM2 and caddy. Headless Chrome wants
+   300-500 MB before it loads a real page. The OOM killer's available victims are
+   sendit.service, multiwordle and casinore-backend — production blast radius for a
+   job application.
+2. **Geolocation — the decisive one.** The VPS is a DigitalOcean box in Singapore
+   (159.223.59.45). Logging into a PH job account from foreign hosting infrastructure
+   is the standard stolen-account signal, and SEEK (Jobstreet) checks it. The same IP
+   already draws a 403-with-captcha from Indeed on plain HTTP.
+3. **Headless is fingerprinted** — navigator.webdriver, plugin and GPU surfaces — by
+   exactly the vendors these sites use. Losing that fight while authenticated is worse
+   than losing it anonymously.
+
+Claude in Chrome is an extension driving a local browser with the user's own profile;
+there is no server deployment of it. That is not a workaround, it is the other half of
+the answer.
+
+**So the work splits by what actually needs a browser.** Reading a posting, drafting a
+cover letter and mapping questions onto the profile are pure LLM steps that need none:
+those can run on the VPS. Only the submit needs a real, logged-in, residential browser
+with a human present. The VPS hands over a finished draft; the person opens the tab and
+clicks. The human-in-the-loop rule above is then enforced by infrastructure rather than
+by discipline.
+
+## Answering employer questions without lying
+
+Jobstreet Quick Apply and Indeed both end in employer questions, usually dropdowns:
+years per skill, degree yes/no, expected salary, willing to work on-site.
+
+Dropdowns are mechanically the *easy* part — a fixed option set means an answer can be
+validated programmatically, which free text cannot. The danger is what they assert:
+these are factual claims and personal commitments. A model guessing at them lies on the
+candidate's behalf, and salary and on-site questions are not facts at all, they are
+decisions the person has to make.
+
+So the model never invents an answer about the candidate. It MAPS the question onto a
+fact already stated in a `profile.yaml` — years per skill, education, salary
+expectation, notice period, acceptable work setups. If no profile fact covers the
+question, it leaves it blank and flags it. A gap must surface, never get filled with a
+plausible guess. The same rule governs the cover letter: it may draw only on
+`resume.txt` and the posting.
+
 ## A cheap win available right now
 
 Indeed alert emails carry an "Easily apply" marker in the body, and `extract.py` is
