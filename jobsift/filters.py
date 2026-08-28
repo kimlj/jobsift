@@ -160,6 +160,9 @@ def check(job: dict, settings: dict) -> tuple[bool, str]:
     if blocked:
         return False, f"title matches {blocked!r}"
 
+    if settings.get("exclude_degree_required") and job.get("degree_required") == "required":
+        return False, "listing requires a degree"
+
     floor = settings.get("min_salary_php")
     if floor:
         value = normalize_salary_php(

@@ -72,6 +72,14 @@ filters:
   # Rough PHP per USD, used only to compare a USD listing against the floor
   # below. Does not need to be a live rate.
   usd_to_php: 58
+  # Drop jobs whose listing states a degree as a HARD requirement. "preferred",
+  # "or equivalent experience", and "unknown" all still pass — the judgement is
+  # made by the scoring model from the listing text, not by keyword matching, so
+  # "Bachelor's degree or equivalent" is correctly treated as open.
+  # NOTE: Indeed alert emails carry a ~160-character truncated snippet and Indeed
+  # blocks fetching the full page (401/403), so for Indeed jobs this is usually
+  # "unknown" and will not fire. It works on sources that give a full description.
+  exclude_degree_required: true
   # Monthly PHP floor. Ranges are judged on their LOW end — "PHP 18,000-40,000"
   # is a job that may pay 18,000. USD and hourly/weekly rates are converted.
   min_salary_php: 40000

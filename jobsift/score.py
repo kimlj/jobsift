@@ -26,8 +26,17 @@ Score TWO categories only:
 
 Location and salary are NOT scoring factors here.
 
+Also report degree_required, judging ONLY what the listing actually says:
+- "required" : a degree is stated as a hard requirement.
+- "preferred": a degree is mentioned as preferred/advantageous, OR is offered
+               with an alternative ("degree or equivalent experience").
+- "none"     : the listing clearly asks for no degree.
+- "unknown"  : the text does not say. Use this whenever you are unsure — the
+               listing may be a truncated snippet. Never guess "required" from
+               the seniority of the role.
+
 Return raw JSON only, no markdown:
-{{"skills_score": 0, "experience_score": 0, "reasoning": "", "matching_skills": [], "missing_skills": []}}"""
+{{"skills_score": 0, "experience_score": 0, "reasoning": "", "matching_skills": [], "missing_skills": [], "degree_required": "unknown"}}"""
 
 
 def _compute_salary_score(job: dict, baseline: float = 70000.0) -> int:
@@ -105,7 +114,12 @@ def score_job(
     # Capped so a bonus cannot push a job past a perfect score.
     total = min(100, skills_score + experience_score + salary_score + bonus)
 
+    degree = str(data.get("degree_required", "unknown") or "unknown").strip().lower()
+    if degree not in ("required", "preferred", "none", "unknown"):
+        degree = "unknown"
+
     return {
+        "degree_required": degree,
         "priority_bonus": bonus,
         "priority_hits": hits,
         "skills_score": skills_score,

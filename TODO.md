@@ -73,6 +73,17 @@ running continuously** — runs are manual (`--once`) until the systemd unit is 
       url.jobstreet.com host, at the cost of 286-char URLs.
 - [x] usd_to_php and salary_baseline_php moved out of code into config.
 
+## Known data gaps
+
+- [ ] **Indeed gives us almost nothing to filter on.** Its alert emails carry a
+      ~160-char truncated snippet (25 of 149 stored jobs sit at exactly 160-161
+      chars), and the full page is unreachable: /viewjob returns 401 and the
+      rc/clk link returns 403 with a captcha challenge. So `requirements` is empty
+      for 0/149 jobs and only 3/149 mention a degree anywhere. Any filter needing
+      the full posting text will silently under-fire on Indeed, which is ~95% of
+      volume. Nothing to fix in code — it is a source limitation worth remembering
+      before promising a filter works.
+
 ## Open questions
 
 - [ ] `drop_when_salary_unknown` is false, so listings with no stated salary bypass the
