@@ -120,3 +120,41 @@ Verified against real inbox subjects — these send mail but no job listings:
 - `notifications.freelancer.com` — direct messages ("Re: Mandy") and promos
 - `onlinejobs.ph` — profile-onboarding drip only; it is a profile-first marketplace where
   employers message you directly, so it will never emit parseable job alerts
+
+## NEXT SESSION — onlinejobs.ph is the focus
+
+Three commits landed: evidence-aware scoring, the onlinejobs source, the sign-off.
+`config.yaml` is gitignored, so its settings are local only — `config.example.yaml`
+carries them.
+
+**Still switched off.** `scrape_sources.onlinejobs_ph.enabled: false`. Turning it
+on is the next step, and the ToS question is unanswered — the scraper is
+well-behaved (public pages, honest UA, 5s Crawl-delay, robots.txt allows all) but
+that is robots compliance, not terms compliance.
+
+The dry run to repeat: `.venv\Scripts\python.exe dryrun_onlinejobs.py python "full stack" --pages 1 --limit 12`
+It writes nothing. Last run: 60 listings → 40 past the title gate → 11 would save,
+6 would alert, all `evidence: full`, and it dropped a 60/100 job for stating a
+degree requirement — the first time that filter has ever fired.
+
+**Re-run it before enabling.** Those numbers predate the currency fix, so several
+of the 12 jobs it filtered would now survive (`~2,400` was read as ₱2,400 and is
+really $2,400 = ₱139,200).
+
+### Open
+
+- **European salaries parse to junk.** `€40.000` → 40.0, `250 000 zł` → 250.0.
+  Dots and spaces as thousands separators, and no EUR/GBP/PLN rates — only USD.
+  Working Nomads is EMEA-heavy, so this silently discards most of Europe.
+- **Degree-drops are invisible.** A 82/100 Principal AI Engineer at $160-200k was
+  binned for stating a degree requirement and never surfaced. Decide whether high
+  scorers should alert with a warning instead of vanishing.
+- **Working Nomads is not live** — `known_senders` only labels mail that arrives.
+  It needs an alert created on their site pointed at GMAIL_ADDRESS. Same for
+  foundit, kalibrr, bossjob, remotive, weworkremotely, virtualstaff: configured,
+  zero jobs ever.
+- **Working Nomads will enrich properly** when it does arrive: robots.txt allows
+  all, pages return ~2,775 chars of text, and the domain is NOT in
+  `skip_link_domains`. First email source that can reach `evidence: full`.
+- The 149 existing rows keep their old inflated scores and read `evidence: unknown`.
+  Deliberately not backfilled.
