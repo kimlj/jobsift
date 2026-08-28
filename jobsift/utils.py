@@ -10,6 +10,19 @@ from bs4 import BeautifulSoup
 _URL_RE = re.compile(r"https?://\S+")
 _TOKEN_RE = re.compile(r"\[?URL(\d+)\]?", re.IGNORECASE)
 
+# Characters that routinely sit right after a URL in prose or in bracketed link
+# markup but are not part of it. \S+ above is greedy, so "[https://x/y]" would
+# otherwise capture the closing bracket and produce a URL that 400s.
+_URL_TRAILING = "]),.;:!?'\"<>"
+
+
+def _split_trailing(url: str) -> tuple[str, str]:
+    """Split a captured URL into (url, trailing punctuation)."""
+    cut = len(url)
+    while cut > 0 and url[cut - 1] in _URL_TRAILING:
+        cut -= 1
+    return url[:cut], url[cut:]
+
 
 def html_to_text(html: str, limit: int | None = None) -> str:
     """Strip HTML to readable text."""
@@ -40,8 +53,12 @@ def mask_urls(text: str) -> tuple[str, list[str]]:
     urls: list[str] = []
 
     def swap(match: re.Match) -> str:
-        urls.append(match.group(0))
-        return f"[URL{len(urls)}]"
+        url, trailing = _split_trailing(match.group(0))
+        if not url:
+            return match.group(0)
+        urls.append(url)
+        # Re-emit the trailing punctuation so the surrounding text is unchanged.
+        return f"[URL{len(urls)}]{trailing}"
 
     return _URL_RE.sub(swap, text), urls
 
@@ -53,7 +70,11 @@ def unmask_url(token: str, urls: list[str]) -> str:
         return ""
     match = _TOKEN_RE.fullmatch(token)
     if not match:
-        return token  # model returned a real URL (or junk) — leave it be
+        # Model returned a real URL (or junk) rather than a token. Strip the same
+        # trailing punctuation so a copied-out link is still usable.
+        if token.startswith(("http://", "https://")):
+            return _split_trailing(token)[0]
+        return token
     index = int(match.group(1)) - 1
     return urls[index] if 0 <= index < len(urls) else ""
 

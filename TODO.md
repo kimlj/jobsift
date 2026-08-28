@@ -25,8 +25,16 @@ running continuously** — runs are manual (`--once`) until the systemd unit is 
 - [ ] **Two-phase IMAP fetch.** `gmail.py` downloads every message in the window in full
       (`RFC822`), one at a time. Fetch headers first, run `classify()`, then pull bodies
       only for job mail. Roughly a third of the window is Strava/GitHub/Google.
-- [ ] **Jobstreet enrichment fails.** `url.jobstreet.com` redirector links return
-      `400 Bad Request`, so Jobstreet jobs get scored without page enrichment.
+- [x] **Malformed URLs (was misdiagnosed as "Jobstreet enrichment fails").** The real
+      cause was `mask_urls`: `https?://\S+` is greedy over non-whitespace, so a link
+      written as `[https://...]` captured the closing bracket. 24% of stored URLs ended
+      in `]`, which 400'd on fetch AND shipped broken links to Telegram. Fixed by
+      trimming trailing punctuation and re-emitting it into the text.
+- [ ] **Jobstreet pages return 403 to automated fetches.** With URLs now clean, the
+      redirector resolves correctly to `ph.jobstreet.com/job/<id>`, but that page blocks
+      us (a browser User-Agent alone does not help). Enrichment degrades gracefully, so
+      Jobstreet jobs are scored from email content only. Low priority — the emails
+      already carry title/company/salary.
 - [ ] **Rewrite `docs/job-alert-sources.md`.** Still references n8n nodes ("the *Classify
       email* node") from before the Python rewrite. Should become a real setup guide:
       the three rules (email not in-app / correct address / domain in config), the
