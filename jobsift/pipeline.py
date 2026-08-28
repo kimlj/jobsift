@@ -9,6 +9,7 @@ from .classify import classify
 from .enrich import enrich_job
 from .extract import extract_jobs
 from .filters import check as passes_filters
+from .utils import strip_tracking_params
 from .score import score_job
 from .sources import collect as collect_scraped
 
@@ -42,7 +43,7 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "job_type": job.get("job_type") or "N/A",
         "experience_level": job.get("experience_level") or "N/A",
         "duration": job.get("duration") or "N/A",
-        "url": job.get("url") or "N/A",
+        "url": strip_tracking_params((job.get("url") or "").strip()) or "N/A",
         "description_summary": job.get("description_summary") or job.get("description") or "N/A",
         "score": score["total"],
         "skill_match": f"{score['skills_score']}/30",

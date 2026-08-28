@@ -29,6 +29,16 @@ def send_telegram(bot_token: str, chat_id: str, record: dict) -> None:
     ]
     if skills and skills != "N/A":
         lines.append(f"✅ {skills[:180]}")
+
+    summary = _esc(record.get("description_summary"))
+    if summary and summary != "N/A":
+        lines.append("")
+        lines.append(f"📝 {summary[:320]}")
+
+    why = _esc(record.get("reasoning"))
+    if why and why != "N/A":
+        lines.append(f"🧠 <i>{why[:260]}</i>")
+
     if url.startswith("http"):
         # Always a bare URL, never <a href>. Telegram prompts "Open link?" before
         # following a link whose anchor text hides the destination, so an anchor

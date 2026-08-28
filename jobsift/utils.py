@@ -85,6 +85,8 @@ _TRACKING_PARAMS = {
     "token", "tracking", "src", "source", "ref", "referrer", "campaign", "cid",
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "mc_cid", "mc_eid", "sid", "trk", "trkcampaign", "from",
+    # Indeed alert links carry these; "jk" is the job id and is deliberately kept.
+    "qd", "rd", "tk", "alid", "bb", "tmtk", "xkcb", "xpse", "vjs", "acatk", "jsa",
 }
 
 
