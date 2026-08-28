@@ -1,0 +1,1027 @@
+{
+  "name": "Job Email Watcher",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "event": "=messageReceived",
+        "filters": {
+          "readStatus": "both"
+        }
+      },
+      "id": "66ab77a8-2b18-4448-a638-98688ab83b17",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2064,
+        160
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GtXRKpvNQUiVKZfl",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "5cad6ad2-70f8-46f8-b268-93c02498a275",
+              "leftValue": "={{ $json.is_job_email.toString() }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "658e9c16-37c8-4fab-8af1-71caa8956b22",
+      "name": "Is Job Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1552,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a job listing extractor. You receive email text from job alert emails and extract individual job listings into\nstructured JSON.\n\nRules:\n- ONLY extract actual job listings. Ignore email headers, navigation links, footers, and summary lines.\n- Metadata tags like \"Easily apply\" and \"Responsive employer\" are not part of job details.\n\nFor each job, extract:\n- title: The job title\n- company: Company name\n- location: City/location\n- salary: Salary if listed, otherwise empty string\n- description: The short description snippet\n- posted: How long ago it was posted, otherwise empty string\n- url: The full URL for that job listing\n\nReturn a JSON object with this exact structure:\n{\"jobs\": [{\"title\": \"\", \"company\": \"\", \"location\": \"\", \"salary\": \"\", \"description\": \"\", \"posted\": \"\", \"url\": \"\"}]}\n\nIf no jobs are found, return: {\"jobs\": []}",
+              "role": "system"
+            },
+            {
+              "content": "=Extract all job listings from this email:\n\n{{ $json.text }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 8000,
+          "temperature": 0
+        }
+      },
+      "id": "fedab3bb-93c4-4ac9-8021-b597122d11f0",
+      "name": "Extract Jobs from Email",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -1008,
+        32
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2UBXxaDBLTj5yETZ",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n  const results = [];\n\n  for (const item of items) {\n    const content = item.json.message?.content || item.json.output || '';\n    const parsed = JSON.parse(content);\n    const source = item.json.source || 'email';\n\n    for (const job of parsed.jobs) {\n      results.push({ json: { ...job, source } });\n    }\n  }\n\n  return results;"
+      },
+      "id": "2e4725e6-70c1-4ad7-80d0-f9e8e22a3aaa",
+      "name": "Split Into Individual Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n  return items.map(item => ({\n    json: { ...item.json, job_url: item.json.url || null }\n  }));"
+      },
+      "id": "16f1a9f6-43d0-4c37-9136-70911c5c247b",
+      "name": "Extract Job Links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "666cae6e-4afc-429f-8768-d5d930663631",
+              "leftValue": "={{ $json.job_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2b503d5a-8702-4cba-acc7-754061c59cc2",
+              "leftValue": "={{ $json.job_url }}",
+              "rightValue": "upwork.com",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            },
+            {
+              "id": "a20fcf92-0ec8-439f-bbd6-7395ae6475f3",
+              "leftValue": "={{ $json.job_url }}",
+              "rightValue": "indeed.com",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ebb07b12-ed93-4dc5-ade1-d9d7d69d5de0",
+      "name": "Should Follow Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.job_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "849c36c1-686b-49d6-b9b0-9d3aa3b1a085",
+      "name": "Fetch Job Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract readable text from HTML, strip tags\nconst html = $input.first().json.data || $input.first().json.body || '';\nconst job = $('Should Follow Link?').first().json;\n\n// Simple HTML to text\nlet text = html\n  .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;/g, ' ')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\n// Limit to first 5000 chars to avoid token limits\ntext = text.substring(0, 5000);\n\nreturn [{ json: { ...job, page_text: text } }];"
+      },
+      "id": "cef9ece7-5dc9-4d17-b06d-877e99de54e2",
+      "name": "Clean HTML to Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chat"
+      },
+      "id": "31e2d669-91d1-4f66-a9f3-27461a3e8299",
+      "name": "Analyze Job Page",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        512,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2UBXxaDBLTj5yETZ",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge scraped page details back into job object\nconst job = $('Should Follow Link?').first().json;\nconst pageDetails = JSON.parse($input.first().json.message?.content || '{}');\n\n// Merge: page details override email-extracted data where available\nconst merged = {\n  ...job,\n  title: pageDetails.title || job.title,\n  company: pageDetails.company || job.company,\n  location: pageDetails.location || job.location,\n  salary: pageDetails.salary || job.salary,\n  skills_required: pageDetails.skills_required || job.skills_mentioned || [],\n  job_type: pageDetails.job_type || job.job_type,\n  experience_level: pageDetails.experience_level || 'unknown',\n  responsibilities: pageDetails.responsibilities || [],\n  requirements: pageDetails.requirements || [],\n  benefits: pageDetails.benefits || [],\n  description_summary: pageDetails.description_summary || job.description_snippet || '',\n  duration: pageDetails.duration || job.duration,\n  remote: pageDetails.remote || (job.location || '').toLowerCase().includes('remote'),\n  enriched_from_page: true\n};\n\nreturn [{ json: merged }];"
+      },
+      "id": "6a5d07ce-4826-499b-b8a5-9d7c351bb58a",
+      "name": "Merge Page Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n  return items.map(item => {\n    const job = item.json;\n    return { json: {\n      ...job,\n      skills_required: [],\n      experience_level: 'unknown',\n      responsibilities: [],\n      requirements: [],\n      benefits: [],\n      description_summary: job.description || '',\n      remote: (job.location || '').toLowerCase().includes('remote'),\n      enriched_from_page: false\n    }};\n  });"
+      },
+      "id": "d83ca2df-e60a-4f80-9204-e455001bc6c0",
+      "name": "Normalize (No Link)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "id": "1fb07db8-a99a-4b83-9303-2f28d1747bef",
+      "name": "Merge Both Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1008,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a job-resume matcher. You score how well a job listing matches the candidate's resume.\n\nWhen the job description doesn't explicitly list technologies, infer likely required skills from the project\ndescription. For example:\n- \"cross-platform app\" likely needs React Native or Flutter\n- \"AI integration\" likely needs Python, LLM APIs, or similar\n- \"web app\" likely needs React, Next.js, or similar\nMatch inferred skills against the candidate's profile.\n\nCandidate Profile:\nKim Julongbayan - Full Stack Engineer | AI Engineer | Backend Systems\n5+ years experience building scalable web, mobile, and AI-integrated systems.\nSkills: JavaScript, TypeScript, Python, React, React Native, Next.js, Node.js, Express, PostgreSQL, REST APIs, LLM\nIntegration (Claude, GPT), Stable Diffusion, ComfyUI, Prompt Engineering, AI Workflow Automation, Docker, CI/CD,\nGoogle Cloud, Linux VPS, Nginx, Git\nExperience: WebSocket real-time systems, blockchain DApps (Solana), AI-powered tools, e-commerce platforms,\nmultiplayer game architecture, chained LLM inference pipelines\n\nScore TWO categories only:\n\n1. Skills match (out of 30):\n  - How well do the candidate's skills match what the job needs?\n  - 0 = no overlap, 30 = perfect match\n\n2. Experience requirements (out of 30):\n  - Does the candidate meet the years of experience and specific stack requirements?\n  - 0 = completely unqualified, 30 = exceeds requirements\n\nLocation and salary are NOT scoring factors. Do not consider them.\n\nIMPORTANT: Return raw JSON only. No markdown, no backticks, no code blocks.\n{\"skills_score\": 28, \"experience_score\": 25, \"reasoning\": \"brief explanation\", \"matching_skills\": [\"AI\", \"React\"],\n\"missing_skills\": []}",
+              "role": "system"
+            },
+            {
+              "content": "=Score this job:\nTitle: {{ $json.title }}\nCompany: {{ $json.company }}\nLocation: {{ $json.location }}\nSalary: {{ $json.salary }}\nDescription: {{ $json.description_summary }}\nSkills required: {{ $json.skills_required }}\nRequirements: {{ $json.requirements }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "16007331-0f51-4695-bcc1-a7dbfa63a698",
+      "name": "Score Against Resume",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1264,
+        112
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2UBXxaDBLTj5yETZ",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst mergedItems = $('Merge Both Paths').all();\nconst results = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const job = mergedItems[i]?.json || {};\n  const raw = (items[i].json.message?.content || '{}').replace(/```json\\n?/g, '').replace(/```/g, '').trim();\n  const scoreData = JSON.parse(raw);\n  const posted = job.posted || '';\n  const isUpwork = (job.url || '').includes('upwork.com');\n  const isDuration = posted.includes('month') || posted.includes('week');\n\n  // --- Salary scoring (40 points) ---\n  const salaryStr = (job.salary || '').replace(/,/g, '');\n  let salaryValue = 0;\n  let salaryMin = 0;\n\n  const phpMatch = salaryStr.match(/PHP\\s*([\\d.]+)/i);\n  const usdMatch = salaryStr.match(/\\$\\s*([\\d.]+)/g);\n\n  if (phpMatch) {\n    const phpAll = salaryStr.match(/[\\d.]+/g).map(Number);\n    salaryValue = Math.max(...phpAll);\n    salaryMin = 70000;\n  } else if (usdMatch) {\n    const usdAll = salaryStr.match(/[\\d.]+/g).map(Number);\n    salaryValue = Math.max(...usdAll);\n    if (salaryStr.toLowerCase().includes('fixed') || (!salaryStr.includes('/hr') && !salaryStr.includes('hour') &&\n!salaryStr.includes('-') && isUpwork)) {\n      salaryMin = 500;\n    } else {\n      salaryMin = 15;\n    }\n  }\n\n  let salaryScore = 10;\n  if (salaryMin > 0 && salaryValue > 0) {\n    if (salaryValue >= salaryMin * 2) {\n      salaryScore = 40;\n    } else if (salaryValue >= salaryMin) {\n      salaryScore = 20 + Math.round(((salaryValue - salaryMin) / salaryMin) * 20);\n    } else {\n      salaryScore = Math.round((salaryValue / salaryMin) * 20);\n    }\n  }\n\n  const skillsScore = scoreData.skills_score || 0;\n  const experienceScore = scoreData.experience_score || 0;\n  const totalScore = skillsScore + experienceScore + salaryScore;\n\n  results.push({ json: {\n    timestamp: $('Gmail Trigger').first().json.date || new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila'\n}),\n    source: job.source || 'N/A',\n    job_title: job.title || 'N/A',\n    company: job.company || 'N/A',\n    location: job.location || 'N/A',\n    remote: (job.remote || (job.url || '').includes('upwork.com')) ? 'Yes' : 'No',\n    salary: job.salary || 'N/A',\n    skills_required: (job.skills_required || []).length ? job.skills_required.join(', ') : 'N/A',\n    job_type: job.job_type || 'N/A',\n    experience_level: job.experience_level || 'N/A',\n    duration: (isUpwork && isDuration) ? posted : (job.duration || 'N/A'),\n    url: job.job_url || job.url || 'N/A',\n    description_summary: job.description_summary || 'N/A',\n    score: totalScore,\n    skill_match: skillsScore + '/30',\n    experience_fit: experienceScore + '/30',\n    interest_fit: salaryScore + '/40',\n    matching_skills: (scoreData.matching_skills || []).length ? scoreData.matching_skills.join(', ') : 'N/A',\n    missing_skills: (scoreData.missing_skills || []).length ? scoreData.missing_skills.join(', ') : 'N/A',\n    reasoning: scoreData.reasoning || 'N/A',\n    status: 'new',\n    reported_at: new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila' })\n  }});\n}\n\nreturn results;"
+      },
+      "id": "40bbc5fa-4bba-48d0-8ce8-835cdd57e25f",
+      "name": "Prepare Sheet Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "list",
+          "cachedResultName": "n8n-job-monitor",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/<YOUR_GOOGLE_SHEET_ID>/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/<YOUR_GOOGLE_SHEET_ID>/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "job_title",
+              "displayName": "job_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "remote",
+              "displayName": "remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "salary",
+              "displayName": "salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "skills_required",
+              "displayName": "skills_required",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "job_type",
+              "displayName": "job_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "experience_level",
+              "displayName": "experience_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "duration",
+              "displayName": "duration",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "description_summary",
+              "displayName": "description_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "skill_match",
+              "displayName": "skill_match",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "experience_fit",
+              "displayName": "experience_fit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "interest_fit",
+              "displayName": "interest_fit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "matching_skills",
+              "displayName": "matching_skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "missing_skills",
+              "displayName": "missing_skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reasoning",
+              "displayName": "reasoning",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reported_at",
+              "displayName": "reported_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e1133055-3ed5-4955-bf82-d0dad4107131",
+      "name": "Save to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1760,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GYohLimvBGfJdgDF",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1904,
+        160
+      ],
+      "id": "87459477-9154-4dd3-871f-d383e517a901",
+      "name": "Get a message",
+      "webhookId": "08fd80f3-e0af-4ff2-9570-ca18fda10a96",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GtXRKpvNQUiVKZfl",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = ($json.from?.text || $json.From || '').toLowerCase();\nconst subject = ($json.subject || $json.Subject || '').toLowerCase();\n\nconst knownSenders = {\n  'upwork.com': 'upwork',\n  'jobstreet.com': 'jobstreet',\n  'indeed.com': 'indeed',\n  'linkedin.com': 'linkedin',\n  'glassdoor.com': 'glassdoor',\n  'monster.com': 'monster',\n  'ziprecruiter.com': 'ziprecruiter',\n  'onlinejobs.ph': 'onlinejobs_ph',\n  'virtualstaff.ph': 'virtualstaff_ph',\n  'remotive.com': 'remotive',\n  'weworkremotely.com': 'weworkremotely'\n};\n\nlet source = 'unknown';\nlet isJobEmail = false;\n\nfor (const [domain, name] of Object.entries(knownSenders)) {\n  if (from.includes(domain)) {\n    source = name;\n    isJobEmail = true;\n    break;\n  }\n}\n\nif (!isJobEmail) {\n  const jobKeywords = ['new job', 'job alert', 'job match', 'job recommendation',\n    'we found', 'jobs for you', 'hiring', 'job opportunity', 'apply now',\n    'career', 'position', 'vacancy', 'openings for you'];\n  if (jobKeywords.some(kw => subject.includes(kw))) {\n    isJobEmail = true;\n    source = 'other';\n  }\n}\n\nreturn [{ json: { ...$json, is_job_email: isJobEmail, source } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        160
+      ],
+      "id": "5ffcbe4c-e2a3-4f95-b4aa-197b45b16211",
+      "name": "Classify email"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4eb25261-9c98-4eb5-a77b-df2ea50ebe8c",
+              "leftValue": "={{ $json.score }}",
+              "rightValue": 60,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1968,
+        112
+      ],
+      "id": "ece49b29-7d96-4b52-b907-26ac2f289142",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "=<YOUR_TELEGRAM_CHAT_ID>"
+            },
+            {
+              "name": "text",
+              "value": "=Score: {{ $json.score }}/100{{ \"\\n\\n\" }}💼 {{ $json.job_title }}{{ \"\\n\" }}🏢 {{ $json.company }}{{ \"\\n\" }}💰 {{\n$json.salary }}{{ \"\\n\\n\" }}Skills: {{ $json.skill_match }} | Exp: {{ $json.experience_fit }} | Salary: {{\n$json.interest_fit }}{{ \"\\n\" }}✅ {{ $json.matching_skills }}{{ \"\\n\\n\" }}{{ $json.url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2240,
+        96
+      ],
+      "id": "f80956d0-3675-4b82-b5f3-f4519dadc64c",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.text || $json.textPlain || $json.snippet || '';\nconst source = 'indeed';\n\nconst lines = text.split('\\n').filter(l => l.trim());\nconst jobs = [];\nlet currentJob = null;\n\nfor (const line of lines) {\n  const trimmed = line.trim();\n\n  if (trimmed.startsWith('Indeed Job Alert') || trimmed.startsWith('Jobs 1-') ||\n      trimmed.startsWith('See matching') || trimmed.startsWith('Do not share') ||\n      trimmed.startsWith('Salaries estimated') || trimmed.startsWith('©') ||\n      trimmed.startsWith('Privacy') || trimmed.startsWith('Terms') ||\n      trimmed.startsWith('Help Center') || trimmed.startsWith('Manage email') ||\n      trimmed.startsWith('Unsubscribe') || trimmed.startsWith('View all') ||\n      trimmed.startsWith('View jobs') || trimmed.includes('Indeed Ireland') ||\n      trimmed.includes('Block B, Capital') ||\n      /^\\d+ new .+ jobs? in /i.test(trimmed) ||\n      trimmed === 'These job ads match your saved job alert ¹' ||\n      trimmed.startsWith('Indeed homepage') ||\n      trimmed.startsWith('see messages') ||\n      trimmed.startsWith('see notifications')) continue;\n\n  if (trimmed.startsWith('https://')) {\n    if (currentJob) {\n      currentJob.url = trimmed;\n      jobs.push(currentJob);\n      currentJob = null;\n    }\n    continue;\n  }\n\n  if (trimmed === 'Easily apply' || trimmed === 'Responsive employer') continue;\n\n  if (/^\\d+ days? ago$|^Just posted$/.test(trimmed)) {\n    if (currentJob) currentJob.posted = trimmed;\n    continue;\n  }\n\n  if (trimmed.startsWith('PHP ') || trimmed.match(/^PHP \\d/)) {\n    if (currentJob) currentJob.salary = trimmed;\n    continue;\n  }\n\n  if (!currentJob) {\n    currentJob = { title: trimmed, company: '', location: '', salary: '', description: '', posted: '', url: '', source\n };\n    continue;\n  }\n\n  if (!currentJob.company) {\n    const parts = trimmed.split(' - ');\n    currentJob.company = parts[0] || '';\n    currentJob.location = parts.slice(1).join(' - ') || '';\n    continue;\n  }\n\n  if (currentJob.description) {\n    currentJob.description += ' ' + trimmed;\n  } else {\n    currentJob.description = trimmed;\n  }\n}\n\nreturn jobs.map(j => ({ json: j }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        240
+      ],
+      "id": "23a55371-c559-49d2-960f-6c6b56b46d96",
+      "name": "code parser"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9ae02e4f-5cf4-465d-8a9f-8dbe651c20aa",
+              "leftValue": "={{ $('Get a message').first().json.from.value[0].address }}",
+              "rightValue": "upwork.com",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1312,
+        160
+      ],
+      "id": "0dc73dc5-8c65-4c39-9c85-efaa4c74e070",
+      "name": "is it upwork?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nif (!staticData.seenJobs) staticData.seenJobs = {};\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const job = item.json;\n  const key = `${(job.title || '')}::${(job.company || '')}`.toLowerCase().trim();\n\n  if (!staticData.seenJobs[key]) {\n    staticData.seenJobs[key] = Date.now();\n    results.push(item);\n  }\n}\n\nconst thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);\nfor (const [k, v] of Object.entries(staticData.seenJobs)) {\n  if (v < thirtyDaysAgo) delete staticData.seenJobs[k];\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        32
+      ],
+      "id": "9b33df53-f58c-48d5-a19e-6e8663828132",
+      "name": "check duplication"
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Job Email?": {
+      "main": [
+        [
+          {
+            "node": "is it upwork?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Jobs from Email": {
+      "main": [
+        [
+          {
+            "node": "Split Into Individual Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Individual Jobs": {
+      "main": [
+        [
+          {
+            "node": "check duplication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job Links": {
+      "main": [
+        [
+          {
+            "node": "Should Follow Link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Follow Link?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Job Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize (No Link)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Job Page": {
+      "main": [
+        [
+          {
+            "node": "Clean HTML to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean HTML to Text": {
+      "main": [
+        [
+          {
+            "node": "Analyze Job Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Job Page": {
+      "main": [
+        [
+          {
+            "node": "Merge Page Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Page Details": {
+      "main": [
+        [
+          {
+            "node": "Merge Both Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize (No Link)": {
+      "main": [
+        [
+          {
+            "node": "Merge Both Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Both Paths": {
+      "main": [
+        [
+          {
+            "node": "Score Against Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Against Resume": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sheet Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sheet Row": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Classify email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify email": {
+      "main": [
+        [
+          {
+            "node": "Is Job Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "code parser": {
+      "main": [
+        [
+          {
+            "node": "check duplication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is it upwork?": {
+      "main": [
+        [
+          {
+            "node": "Extract Jobs from Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "code parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check duplication": {
+      "main": [
+        [
+          {
+            "node": "Extract Job Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": {},
+  "pinData": {},
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

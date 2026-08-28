@@ -1,0 +1,8 @@
+Your Name - Your Headline (e.g. Full Stack Engineer | AI Engineer)
+X+ years experience doing <what you do>.
+Skills: <comma-separated list of your skills, languages, frameworks, tools>
+Experience: <notable projects, domains, and the kinds of systems you've built>
+
+# This plain-text profile is what jobs get scored against. Copy this file to
+# resume.txt and replace it with your real profile. Keep it concise and skills-heavy —
+# the scorer reads it literally. resume.txt is gitignored so it stays private.

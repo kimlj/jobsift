@@ -1,0 +1,32 @@
+# Secrets & env
+.env
+.env.local
+*.local.json
+
+# User-specific config, profile, and local data
+config.yaml
+resume.txt
+data/
+service-account.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# n8n + postgres runtime data (self-hosted)
+n8n_data/
+postgres_data/
+.n8n/
+
+# Node / build
+node_modules/
+dist/
+build/
+
+# OS / misc
+.DS_Store
+Thumbs.db
+nul
+*.log

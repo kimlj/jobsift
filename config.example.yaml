@@ -1,0 +1,80 @@
+# Copy to config.yaml and edit. This example file is safe to commit (no secrets).
+# These are the "editable params" — everything a fork of this project would tune.
+
+# ── LLM provider ── which API you have a key for: "anthropic" (Claude) or "openai" (GPT).
+# Put the matching key in .env (ANTHROPIC_API_KEY or OPENAI_API_KEY).
+llm_provider: anthropic
+
+# How often to check the inbox (seconds)
+poll_interval_seconds: 300
+
+# How many days back to scan the inbox on each run
+lookback_days: 2
+
+# ── Which senders count as job alerts ──
+# You subscribe to alerts on each board yourself, pointed at your GMAIL_ADDRESS.
+# This list just tells the watcher which incoming senders are job emails.
+#   domain: label      (label becomes the job's "source")
+known_senders:
+  indeed.com: indeed
+  linkedin.com: linkedin
+  foundit.com: foundit
+  jobstreet.com: jobstreet
+  kalibrr.com: kalibrr
+  bossjob.ph: bossjob
+  remotive.com: remotive
+  weworkremotely.com: weworkremotely
+  onlinejobs.ph: onlinejobs_ph
+  virtualstaff.ph: virtualstaff_ph
+
+# Fallback: if the sender isn't listed above but the subject contains one of these
+# phrases, still treat it as a job email.
+job_subject_keywords:
+  - job alert
+  - new job
+  - jobs for you
+  - job match
+  - hiring
+  - we found
+
+# Don't follow/enrich these link domains (login-walled or too noisy to scrape)
+skip_link_domains:
+  - upwork.com
+  - indeed.com
+
+# Send a Telegram alert when a job's total score is at least this (out of 100)
+score_threshold: 60
+
+# Local SQLite database for dedup (seen jobs) + a job log
+database_path: ./data/jobs.db
+
+# Path to your resume/profile as plain text — used for scoring.
+# Kept out of git (see .gitignore) so your profile stays private in a fork.
+resume_path: ./resume.txt
+
+# Models per stage. Leave this out to use the provider's defaults, or set ids that
+# match your llm_provider. Mixing a cheap model for extract/enrich with a stronger
+# one for scoring keeps cost down.
+#   anthropic defaults: claude-opus-4-8 for all three
+#     (cheaper: claude-haiku-4-5 for extract/enrich, claude-sonnet-5 for score)
+#   openai defaults:    gpt-4o-mini for extract/enrich, gpt-4o for score
+models:
+  extract: claude-opus-4-8   # pull job listings out of an alert email
+  enrich: claude-opus-4-8    # read the job page for structured details
+  score: claude-opus-4-8     # match against your resume
+
+# ── Outputs (both optional) ──
+
+# Telegram: high-score pings. Also needs TELEGRAM_* in .env. Set false to disable.
+telegram_enabled: true
+
+# Google Sheet: full browsable archive of EVERY scored job (Telegram gets flooded,
+# the Sheet doesn't). Optional — set enabled: false to skip it entirely.
+google_sheet:
+  enabled: false
+  sheet_id: "<YOUR_GOOGLE_SHEET_ID>"
+  worksheet: Jobs
+  # Service-account JSON key (Google Cloud → IAM → Service Accounts). Share the
+  # target Sheet with the service account's email as an Editor. Keep this file
+  # out of git — it's a secret.
+  service_account_file: ./service-account.json
