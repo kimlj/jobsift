@@ -30,10 +30,10 @@ Return raw JSON only, no markdown:
 {{"skills_score": 0, "experience_score": 0, "reasoning": "", "matching_skills": [], "missing_skills": []}}"""
 
 
-def _compute_salary_score(job: dict) -> int:
+def _compute_salary_score(job: dict, baseline: float = 70000.0) -> int:
     """Salary component: 40 pts max, 10 pts when the listing states no salary.
 
-    Judged against a 70k PHP/month baseline. The figure comes from the shared
+    Judged against `baseline` PHP/month (config: salary_baseline_php). The figure comes from the shared
     normalizer so an annual range, a peso symbol, a weekly rate or a "25k" style
     range are all read correctly — the previous version took max(numbers) and
     compared it to a monthly baseline, which scored "PHP 180,000 - 350,000 a
@@ -45,7 +45,6 @@ def _compute_salary_score(job: dict) -> int:
     if value is None or value <= 0:
         return 10
 
-    baseline = 70000.0
     if value >= baseline * 2:
         return 40
     if value >= baseline:
@@ -53,7 +52,7 @@ def _compute_salary_score(job: dict) -> int:
     return round(value / baseline * 20)
 
 
-def score_job(llm, model: str, job: dict, resume: str) -> dict:
+def score_job(llm, model: str, job: dict, resume: str, baseline: float = 70000.0) -> dict:
     system = SYSTEM_TEMPLATE.format(resume=resume)
     user = (
         "Score this job:\n"
@@ -69,7 +68,7 @@ def score_job(llm, model: str, job: dict, resume: str) -> dict:
     data = llm.complete_json(model, system, user, max_tokens=800)
     skills_score = int(data.get("skills_score", 0) or 0)
     experience_score = int(data.get("experience_score", 0) or 0)
-    salary_score = _compute_salary_score(job)
+    salary_score = _compute_salary_score(job, baseline)
     total = skills_score + experience_score + salary_score
 
     return {

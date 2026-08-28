@@ -93,7 +93,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
                 continue
 
             job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
-            score = score_job(llm, config.models["score"], job, resume)
+            score = score_job(llm, config.models["score"], job, resume, config.salary_baseline_php)
             record = _build_record(job, score, source, msg["date"])
 
             store.save_job(key, record)
@@ -127,7 +127,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
 
         source = job.get("source") or "scraped"
         job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
-        score = score_job(llm, config.models["score"], job, resume)
+        score = score_job(llm, config.models["score"], job, resume, config.salary_baseline_php)
         record = _build_record(job, score, source, job.get("posted") or "")
 
         store.save_job(key, record)

@@ -47,6 +47,9 @@ filters:
   # since a part-time role genuinely will not deliver a full month's pay.
   # Uncomment to force one figure for every listing regardless of type.
   # hours_per_month: 160
+  # Rough PHP per USD, used only to compare a USD listing against the floor
+  # below. Does not need to be a live rate.
+  usd_to_php: 58
   # Monthly PHP floor. Ranges are judged on their LOW end — "PHP 18,000-40,000"
   # is a job that may pay 18,000. USD and hourly/weekly rates are converted.
   min_salary_php: 40000
@@ -115,6 +118,12 @@ scrape_sources:
 
 # Send a Telegram alert when a job's total score is at least this (out of 100)
 score_threshold: 60
+
+# What a full-marks salary looks like, in PHP per month. The salary component
+# of the score (40 of 100) is measured against this: at or above it scores 20+,
+# at double it scores the full 40. Separate from filters.min_salary_php, which
+# is a hard cutoff rather than a scoring curve.
+salary_baseline_php: 70000
 
 # Local SQLite database for dedup (seen jobs) + a job log
 database_path: ./data/jobs.db

@@ -42,6 +42,7 @@ class Config:
     job_subject_keywords: list
     skip_link_domains: list
     score_threshold: int
+    salary_baseline_php: int
     database_path: str
     resume_path: str
     models: dict
@@ -96,6 +97,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         job_subject_keywords=list(data.get("job_subject_keywords") or []),
         skip_link_domains=list(data.get("skip_link_domains") or []),
         score_threshold=int(data.get("score_threshold", 60)),
+        salary_baseline_php=int(data.get("salary_baseline_php", 70000)),
         database_path=str(data.get("database_path", "./data/jobs.db")),
         resume_path=str(data.get("resume_path", "./resume.txt")),
         models=dict(data.get("models") or {}),

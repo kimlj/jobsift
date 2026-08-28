@@ -13,8 +13,9 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Rough PHP per USD. Only used to compare a USD listing against a PHP floor —
-# it does not need to be a live rate, just the right order of magnitude.
+# Fallback PHP per USD when config does not set filters.usd_to_php. Only used to
+# compare a USD listing against a PHP floor, so it needs the right order of
+# magnitude rather than a live rate.
 USD_TO_PHP = 58.0
 
 # Hours assumed per month when a listing quotes an hourly rate. 160 = 40h/week.
@@ -65,6 +66,7 @@ def normalize_salary_php(
     job_type: str = "",
     hours_per_month: float | None = None,
     text: str = "",
+    usd_to_php: float | None = None,
 ) -> float | None:
     """Best-effort monthly-PHP figure for a listing's salary string.
 
@@ -88,7 +90,7 @@ def normalize_salary_php(
         nums = [n * 1000 if n < 1000 else n for n in nums]
 
     if "$" in cleaned or "usd" in low:
-        rate = USD_TO_PHP
+        rate = float(usd_to_php or USD_TO_PHP)
     elif "₱" in cleaned or "php" in low or re.search(r"\bp\d", low):
         rate = 1.0
     else:
@@ -164,6 +166,7 @@ def check(job: dict, settings: dict) -> tuple[bool, str]:
             job.get("salary") or "",
             job_type=job.get("job_type") or "",
             hours_per_month=settings.get("hours_per_month"),
+            usd_to_php=settings.get("usd_to_php"),
             text=" ".join(
                 [
                     job.get("title") or "",
