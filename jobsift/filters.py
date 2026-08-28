@@ -117,12 +117,19 @@ def normalize_salary_php(
 
 
 def _company_blocked(company: str, patterns: list[str]) -> str | None:
+    """Whole-word match against the employer name.
+
+    Word boundaries matter here: short BPO names like "vxi", "wns" or "tcs"
+    would otherwise fire inside unrelated words, and "bpo" as a bare substring
+    would not distinguish "Elgada BPO Solutions" from a company whose name
+    merely contains those letters.
+    """
     name = (company or "").lower()
     if not name:
         return None
     for pat in patterns:
         pat = (pat or "").strip().lower()
-        if pat and pat in name:
+        if pat and re.search(rf"(?<!\w){re.escape(pat)}(?!\w)", name):
             return pat
     return None
 

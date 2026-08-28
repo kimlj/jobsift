@@ -24,8 +24,22 @@ first_run_lookback_days: 7
 # whatever it would have scored, and they run before enrich/score so a rejected
 # job costs nothing.
 filters:
-  # Substring match against the company name, case-insensitive.
-  exclude_companies: [bpo, accenture, outsourc, offshore, staffing]
+  # Whole-word match against the employer name. Generic terms like "outsourcing"
+  # and "staffing" are deliberately NOT here — plenty of those pay well, and
+  # min_salary_php already handles pay. This list is the named PH BPO shops.
+  exclude_companies:
+    # global CX/BPO majors operating in PH
+    [accenture, concentrix, webhelp, teleperformance, foundever, sitel, sykes,
+     telus international, telus digital, alorica, taskus, sutherland, iqor, vxi,
+     "[24]7", 247.ai, majorel, teletech, ttec, conduent, startek, ibex, transcom,
+     atento, wns, everise, qualfon, resultscx, results cx, hinduja, hgs,
+     # IT-services majors whose PH arms are delivery centres
+     genpact, cognizant, wipro, infosys, tata consultancy, tcs, optum,
+     # PH-based BPO / staff-leasing shops
+     cloudstaff, beepo, emapta, kmc solutions, open access bpo, acquire bpo,
+     supportninja, boldr, pointwest, shore360, satellite office,
+     # catch-all: a company that puts BPO in its own name
+     bpo]
   # Whole-word match against the job title — seniority you do not want.
   exclude_titles: [jr, junior, intern, internship, trainee, apprentice, entry level, fresh graduate]
   # Hourly rates are converted as rate x hours_per_month. 160 = 40h/week x 4.
