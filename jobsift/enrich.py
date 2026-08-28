@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from .utils import html_to_text
+from .utils import html_to_text, strip_tracking_params
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ def enrich_job(llm, model: str, job: dict, skip_link_domains: list[str]) -> dict
     if not url or not url.startswith("http") or any(d in url for d in skip_link_domains):
         return _normalize_no_link(job)
 
+    resolved = url
     try:
         resp = httpx.get(
             url,
@@ -52,10 +53,15 @@ def enrich_job(llm, model: str, job: dict, skip_link_domains: list[str]) -> dict
             timeout=15,
             follow_redirects=True,
         )
+        # Boards mail 300-character tracking links that redirect to a short
+        # canonical page. Keep the destination even when the page itself refuses
+        # us: it is the link a human actually wants, and it is far shorter.
+        resolved = strip_tracking_params(str(resp.url) or url)
+        job = {**job, "url": resolved}
         resp.raise_for_status()
         page_text = html_to_text(resp.text, limit=5000)
     except Exception as exc:
-        logger.info("enrich: could not fetch %s (%s)", url, exc)
+        logger.info("enrich: could not fetch %s (%s)", resolved, exc)
         return _normalize_no_link(job)
 
     if not page_text.strip():

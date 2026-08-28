@@ -96,6 +96,17 @@ def _company_blocked(company: str, patterns: list[str]) -> str | None:
     return None
 
 
+def _title_blocked(title: str, patterns: list[str]) -> str | None:
+    text = (title or "").lower()
+    for pat in patterns:
+        pat = (pat or "").strip().lower()
+        # Whole word, so "jr" does not fire on "jrxyz" and "intern" does not
+        # fire on "international".
+        if pat and re.search(rf"(?<!\w){re.escape(pat)}(?!\w)", text):
+            return pat
+    return None
+
+
 def check(job: dict, settings: dict) -> tuple[bool, str]:
     """Return (keep, reason). reason is only meaningful when keep is False."""
     if not settings:
@@ -104,6 +115,10 @@ def check(job: dict, settings: dict) -> tuple[bool, str]:
     blocked = _company_blocked(job.get("company"), settings.get("exclude_companies") or [])
     if blocked:
         return False, f"company matches {blocked!r}"
+
+    blocked = _title_blocked(job.get("title"), settings.get("exclude_titles") or [])
+    if blocked:
+        return False, f"title matches {blocked!r}"
 
     floor = settings.get("min_salary_php")
     if floor:

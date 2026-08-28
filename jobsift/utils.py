@@ -79,6 +79,28 @@ def unmask_url(token: str, urls: list[str]) -> str:
     return urls[index] if 0 <= index < len(urls) else ""
 
 
+# Params that only identify the referral, never the job. Anything not listed is
+# kept, because some boards put the job id in the query string (Indeed's "jk").
+_TRACKING_PARAMS = {
+    "token", "tracking", "src", "source", "ref", "referrer", "campaign", "cid",
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "gclid", "fbclid", "mc_cid", "mc_eid", "sid", "trk", "trkcampaign", "from",
+}
+
+
+def strip_tracking_params(url: str) -> str:
+    """Drop referral cruft so a resolved link is short enough to show as text."""
+    if not url or "?" not in url:
+        return url
+    base, _, query = url.partition("?")
+    kept = [
+        pair
+        for pair in query.split("&")
+        if pair and pair.split("=", 1)[0].lower() not in _TRACKING_PARAMS
+    ]
+    return f"{base}?{'&'.join(kept)}" if kept else base
+
+
 def parse_json_object(content: str) -> dict:
     """Parse a JSON object from an LLM response, tolerating ```json fences."""
     if not content:

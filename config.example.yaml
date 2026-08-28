@@ -26,6 +26,8 @@ first_run_lookback_days: 7
 filters:
   # Substring match against the company name, case-insensitive.
   exclude_companies: [bpo, accenture, outsourc, offshore, staffing]
+  # Whole-word match against the job title — seniority you do not want.
+  exclude_titles: [jr, junior, intern, internship, trainee, apprentice, entry level, fresh graduate]
   # Monthly PHP floor. Ranges are judged on their LOW end — "PHP 18,000-40,000"
   # is a job that may pay 18,000. USD and hourly/weekly rates are converted.
   min_salary_php: 40000
