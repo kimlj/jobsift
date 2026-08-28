@@ -9,7 +9,14 @@ llm_provider: anthropic
 poll_interval_seconds: 300
 
 # How many days back to scan the inbox on each run
-lookback_days: 2
+lookback_days: 1
+
+# On a FRESH install (empty database), scan this many days back instead, so a new
+# user gets an immediate backlog of jobs rather than waiting for the next alert.
+# This applies exactly once — every later run uses lookback_days.
+# Cost warning: a busy inbox can carry ~20+ job alerts a day, and each one costs
+# an extract call plus enrich + score per job found. Lower this if that matters.
+first_run_lookback_days: 7
 
 # ── Which senders count as job alerts ──
 # You subscribe to alerts on each board yourself, pointed at your GMAIL_ADDRESS.

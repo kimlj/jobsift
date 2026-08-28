@@ -37,6 +37,7 @@ class Config:
     # settings (config.yaml)
     poll_interval_seconds: int
     lookback_days: int
+    first_run_lookback_days: int
     known_senders: dict
     job_subject_keywords: list
     skip_link_domains: list
@@ -88,6 +89,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
         poll_interval_seconds=int(data.get("poll_interval_seconds", 300)),
         lookback_days=int(data.get("lookback_days", 2)),
+        first_run_lookback_days=int(data.get("first_run_lookback_days", 7)),
         known_senders=dict(data.get("known_senders") or {}),
         job_subject_keywords=list(data.get("job_subject_keywords") or []),
         skip_link_domains=list(data.get("skip_link_domains") or []),

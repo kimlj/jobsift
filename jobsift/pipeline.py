@@ -50,8 +50,12 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
 
 def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) -> int:
     """Process the inbox once. Returns the number of new jobs handled."""
-    messages = gmail.fetch_recent(lookback_days=config.lookback_days)
-    logger.info("Fetched %d inbox message(s)", len(messages))
+    first_run = store.is_fresh_install()
+    lookback = config.first_run_lookback_days if first_run else config.lookback_days
+    if first_run:
+        logger.info("Fresh install — backfilling %d day(s) of inbox history", lookback)
+    messages = gmail.fetch_recent(lookback_days=lookback)
+    logger.info("Fetched %d inbox message(s) (lookback %dd)", len(messages), lookback)
     handled = 0
 
     for msg in messages:

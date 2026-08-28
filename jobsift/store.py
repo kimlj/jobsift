@@ -43,6 +43,11 @@ class Store:
         self.conn.commit()
 
     # -- processed emails --
+    def is_fresh_install(self) -> bool:
+        """True when no email has ever been processed (first run on a new install)."""
+        cur = self.conn.execute("SELECT 1 FROM processed_emails LIMIT 1")
+        return cur.fetchone() is None
+
     def is_email_processed(self, uid: str) -> bool:
         cur = self.conn.execute("SELECT 1 FROM processed_emails WHERE uid = ?", (uid,))
         return cur.fetchone() is not None
