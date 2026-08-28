@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import re
 
+from .filters import normalize_salary_php
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_TEMPLATE = """You are a job-resume matcher. You score how well a job listing matches the candidate's resume.
@@ -29,42 +31,26 @@ Return raw JSON only, no markdown:
 
 
 def _compute_salary_score(job: dict) -> int:
-    """Port of the salary heuristic: 40 pts max, 10 pts default when unknown.
+    """Salary component: 40 pts max, 10 pts when the listing states no salary.
 
-    PHP roles are judged against a 70k baseline; USD hourly against $15/hr,
-    USD fixed/Upwork against $500.
+    Judged against a 70k PHP/month baseline. The figure comes from the shared
+    normalizer so an annual range, a peso symbol, a weekly rate or a "25k" style
+    range are all read correctly — the previous version took max(numbers) and
+    compared it to a monthly baseline, which scored "PHP 180,000 - 350,000 a
+    year" (15k/month) as if it paid 350k a month.
     """
-    salary_str = (job.get("salary") or "").replace(",", "")
-    if not salary_str.strip():
+    value = normalize_salary_php(
+        job.get("salary") or "", job_type=job.get("job_type") or ""
+    )
+    if value is None or value <= 0:
         return 10
 
-    url = (job.get("url") or "")
-    is_upwork = "upwork.com" in url
-    nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", salary_str)]
-    if not nums:
-        return 10
-
-    salary_value = max(nums)
-    salary_min = 0
-    low = salary_str.lower()
-
-    if re.search(r"php", low):
-        salary_min = 70000
-    elif "$" in salary_str:
-        if "fixed" in low or ("hr" not in low and "hour" not in low and "-" not in salary_str and is_upwork):
-            salary_min = 500  # fixed-price
-        else:
-            salary_min = 15   # hourly
-    else:
-        return 10
-
-    if salary_min <= 0 or salary_value <= 0:
-        return 10
-    if salary_value >= salary_min * 2:
+    baseline = 70000.0
+    if value >= baseline * 2:
         return 40
-    if salary_value >= salary_min:
-        return 20 + round((salary_value - salary_min) / salary_min * 20)
-    return round(salary_value / salary_min * 20)
+    if value >= baseline:
+        return 20 + round((value - baseline) / baseline * 20)
+    return round(value / baseline * 20)
 
 
 def score_job(llm, model: str, job: dict, resume: str) -> dict:

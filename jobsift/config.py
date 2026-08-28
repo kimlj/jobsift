@@ -47,6 +47,7 @@ class Config:
     models: dict
     telegram_enabled: bool
     scrape_sources: dict = field(default_factory=dict)
+    filters: dict = field(default_factory=dict)
     google_sheet: GoogleSheetConfig = field(default_factory=GoogleSheetConfig)
 
     @property
@@ -100,6 +101,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         models=dict(data.get("models") or {}),
         telegram_enabled=bool(data.get("telegram_enabled", True)),
         scrape_sources=dict(data.get("scrape_sources") or {}),
+        filters=dict(data.get("filters") or {}),
         google_sheet=google_sheet,
     )
 

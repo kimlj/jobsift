@@ -18,6 +18,21 @@ lookback_days: 1
 # an extract call plus enrich + score per job found. Lower this if that matters.
 first_run_lookback_days: 7
 
+# ── Hard filters (applied to EVERY source, before the LLM sees the job) ──
+# Scoring is soft: salary is only 40 of 100 points, so a strong skills match can
+# push a low-paying job past score_threshold. These rules drop a job outright,
+# whatever it would have scored, and they run before enrich/score so a rejected
+# job costs nothing.
+filters:
+  # Substring match against the company name, case-insensitive.
+  exclude_companies: [bpo, accenture, outsourc, offshore, staffing]
+  # Monthly PHP floor. Ranges are judged on their LOW end — "PHP 18,000-40,000"
+  # is a job that may pay 18,000. USD and hourly/weekly rates are converted.
+  min_salary_php: 40000
+  # Most listings state no salary at all. true drops them, false lets them
+  # through to be scored on skills alone.
+  drop_when_salary_unknown: false
+
 # ── Which senders count as job alerts ──
 # You subscribe to alerts on each board yourself, pointed at your GMAIL_ADDRESS.
 # This list just tells the watcher which incoming senders are job emails.

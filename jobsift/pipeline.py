@@ -8,6 +8,7 @@ from datetime import datetime
 from .classify import classify
 from .enrich import enrich_job
 from .extract import extract_jobs
+from .filters import check as passes_filters
 from .score import score_job
 from .sources import collect as collect_scraped
 
@@ -86,6 +87,11 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
                 continue
             store.mark_job_seen(key)
 
+            keep, why = passes_filters(job, config.filters)
+            if not keep:
+                logger.info("  filtered: %s @ %s — %s", job.get("title"), job.get("company"), why)
+                continue
+
             job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
             score = score_job(llm, config.models["score"], job, resume)
             record = _build_record(job, score, source, msg["date"])
@@ -113,6 +119,11 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
         if key == "::" or store.is_job_seen(key):
             continue
         store.mark_job_seen(key)
+
+        keep, why = passes_filters(job, config.filters)
+        if not keep:
+            logger.info("  filtered: %s @ %s — %s", job.get("title"), job.get("company"), why)
+            continue
 
         source = job.get("source") or "scraped"
         job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
