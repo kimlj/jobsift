@@ -1,0 +1,50 @@
+# Copy to profile.yaml and fill in. Gitignored, like resume.txt.
+#
+# These are the FACTS the drafter is allowed to state about you. It maps employer
+# questions onto this file — it never invents an answer. Anything not covered here
+# comes back blank and flagged for you to fill in, which is the point: a gap must
+# surface rather than get filled with a plausible guess.
+
+name: Your Name
+email: you@example.com
+phone: "+63 900 000 0000"
+location: Quezon City, Philippines
+portfolio: https://yourdomain.dev
+github: https://github.com/yourhandle
+linkedin: https://linkedin.com/in/yourhandle
+
+# Education. Be accurate — this answers "do you have a degree" questions.
+education:
+  highest: none          # none | vocational | associate | bachelor | master
+  field: ""
+  school: ""
+  graduated_year: null
+
+experience:
+  years_total: 5
+  # Used for "how many years of X" dropdowns. Only list what you would defend
+  # in an interview.
+  years_by_skill:
+    javascript: 5
+    typescript: 4
+    react: 5
+    node: 5
+    python: 4
+    postgresql: 4
+    docker: 3
+
+# Commitments, not facts — these are decisions, so state them yourself.
+compensation:
+  expected_monthly_php: 80000
+  negotiable: true
+availability:
+  notice_period_days: 0
+  earliest_start: "immediately"
+work_setup: [remote, hybrid]      # remote | hybrid | onsite
+onsite_ok_locations: []           # e.g. [Makati, BGC] — empty means remote/hybrid only
+willing_to_relocate: false
+work_authorization: "Philippine citizen, no sponsorship required"
+
+# Optional. Free-text notes the drafter may use for context, e.g. why you are
+# looking, or domains you want. Keep it short and true.
+notes: ""

@@ -30,3 +30,6 @@ build/
 Thumbs.db
 nul
 *.log
+
+# Applier profile (facts used to answer employer questions)
+profile.yaml
