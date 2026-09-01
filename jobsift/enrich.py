@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 
-import httpx
-
+from .safefetch import UnsafeURL, safe_get
 from .utils import html_to_text, strip_tracking_params
 
 logger = logging.getLogger(__name__)
@@ -40,18 +39,36 @@ def _normalize_no_link(job: dict) -> dict:
     }
 
 
-def enrich_job(llm, model: str, job: dict, skip_link_domains: list[str]) -> dict:
+def enrich_job(
+    llm, model: str, job: dict, skip_link_domains: list[str],
+    allow_hosts: list[str] | None = None,
+) -> dict:
+    # A source that already handed over the full posting has nothing to gain here
+    # and something to lose. The remote JSON feeds carry 4,000-10,600 characters of
+    # description inline, so following their link would pay an HTTP request and an
+    # LLM call to re-derive text we were already given — and would overwrite it with
+    # whatever the page happened to render.
+    #
+    # This has to be the job's own claim rather than a domain in skip_link_domains,
+    # because these links do not share a domain: himalayas' applicationLink points
+    # at whatever ATS the employer uses, and one listing in a single live run linked
+    # to a Google Form. No hostname list can cover that.
+    if job.get("full_posting"):
+        return _normalize_no_link(job)
+
     url = (job.get("url") or "").strip()
     if not url or not url.startswith("http") or any(d in url for d in skip_link_domains):
         return _normalize_no_link(job)
 
     resolved = url
     try:
-        resp = httpx.get(
+        # safe_get, not httpx.get: this URL came out of an email body, so whoever
+        # sent the mail chose it. See safefetch for what that means on a VPS.
+        resp = safe_get(
             url,
             headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
             timeout=15,
-            follow_redirects=True,
+            allow_hosts=allow_hosts,
         )
         # Boards mail 300-character tracking links that redirect to a short
         # canonical page. Keep the destination even when the page itself refuses
@@ -60,6 +77,11 @@ def enrich_job(llm, model: str, job: dict, skip_link_domains: list[str]) -> dict
         job = {**job, "url": resolved}
         resp.raise_for_status()
         page_text = html_to_text(resp.text, limit=5000)
+    except UnsafeURL as exc:
+        # Not a network problem. Either a board changed its links, or something
+        # aimed this program at an address it has no business fetching.
+        logger.warning("enrich: refused to fetch %s — %s", resolved, exc)
+        return _normalize_no_link(job)
     except Exception as exc:
         logger.info("enrich: could not fetch %s (%s)", resolved, exc)
         return _normalize_no_link(job)
