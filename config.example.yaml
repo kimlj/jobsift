@@ -8,6 +8,20 @@ llm_provider: anthropic
 # How often to check the inbox (seconds)
 poll_interval_seconds: 300
 
+# How often to read the non-email sources (seconds). SEPARATE from the inbox poll,
+# and it has to be: IMAP is cheap and local, a job board is neither. Without this
+# split, `collect_scraped` ran on every 5-minute pass — 288 times a day, 32 requests
+# each, ~9,200 requests a day to five services that publish this data for free.
+#
+# 1200 (20 minutes) is the compromise. Applying early is a genuine advantage, so a
+# new posting is still noticed within a third of an hour, while the request count
+# falls by ~95%. Jobstreet also stops paging as soon as a page contains a listing
+# already stored — results are newest-first, so everything below it is older — which
+# makes a steady-state sweep one request per keyword instead of two.
+#
+# Override per source with `interval_seconds:` inside its own block below.
+scrape_interval_seconds: 1200
+
 # How many days back to scan the inbox on each run
 lookback_days: 1
 
@@ -58,12 +72,97 @@ filters:
      # IT-services majors whose PH arms are delivery centres
      genpact, cognizant, wipro, infosys, tata consultancy, tcs, optum,
      # PH-based BPO / staff-leasing shops
-     cloudstaff, beepo, emapta, kmc solutions, open access bpo, acquire bpo,
-     supportninja, boldr, pointwest, shore360, satellite office,
+     beepo, kmc solutions, open access bpo, acquire bpo,
+     supportninja, boldr, shore360, satellite office,
+     # cloudstaff, emapta and pointwest were here and were removed 2026-09-01:
+     # they are staff-leasing / software-services firms rather than call-centre
+     # BPOs, and they pay competitively for developer roles. By the "fine as long
+     # as they pay well" rule they do not belong on this list — min_salary_php is
+     # what should judge them, and now does.
      # catch-all: a company that puts BPO in its own name
      bpo]
-  # Whole-word match against the job title — seniority you do not want.
-  exclude_titles: [jr, junior, intern, internship, trainee, apprentice, entry level, fresh graduate]
+  # Whole-word match against the job title — seniority you do not want, at BOTH
+  # ends. Applies to every source, which is the point: one list, same rule for
+  # email, jobstreet and the remote feeds alike.
+  #
+  # senior/sr added 2026-09-01. It drops a lot — most of what these boards label
+  # "Senior" is US-market senior, which is a different bar — and that is the
+  # intention: a role that cannot be defended in the interview is a wasted fetch,
+  # a wasted scoring call and a wasted afternoon. Adjacent titles NOT on this list
+  # yet, in case they should be: lead, staff, principal, head of, director,
+  # architect, manager.
+  # Role types that are never wanted, at any pay, from any board. These live HERE
+  # rather than in a per-source list because a rule that is true everywhere should
+  # be written once — onlinejobs.ph, jobstreet and the remote feeds all carry VA
+  # and admin work under slightly different titles.
+  exclude_titles:
+    # seniority, both ends
+    - jr
+    - junior
+    - intern
+    - internship
+    - trainee
+    - apprentice
+    - entry level
+    - fresh graduate
+    - senior
+    - sr
+    # assistant / admin work
+    - virtual assistant
+    - executive assistant
+    - admin assistant
+    - administrative assistant
+    - personal assistant
+    - data entry
+    - appointment setter
+    - cold caller
+    - telemarketer
+    # "va" is NOT here on purpose: as a whole word it would fire on a company
+    # called "VA Masters" and on any title carrying the US state abbreviation.
+  # ── Geography ── four rules, applied in this order:
+  #   1. the job is in the Philippines            -> keep, on-site/hybrid/remote alike
+  #   2. elsewhere and remote                     -> keep only if a PH-based candidate
+  #                                                  is actually eligible
+  #   3. elsewhere and needs you physically there -> drop. Hybrid abroad means being
+  #                                                  there, so hybrid fails this too
+  #   4. location unknown or unrecognised         -> keep, and let scoring judge it
+  #
+  # Rule 2 is the point of this. Measured against the live remote feeds on
+  # 2026-09-01, only a small share of "remote" listings are open to a PH candidate
+  # at all — remotive 9/19, workingnomads 14/45, jobicy 3/50. The rest read "USA",
+  # "Europe", "Time zone: CET (+/- 3 hours)" in a structured field, so reading them
+  # costs nothing and no LLM is involved.
+  #
+  # A source that hands us its OWN eligibility field — himalayas' locationRestrictions,
+  # remotive's candidate_required_location — is read strictly: an adapter puts it in
+  # `candidate_location`, and anything named there that is not ours counts as a
+  # restriction even if no list below has heard of it. That is what stops "Costa Rica"
+  # and "Bosnia and Herzegovina" leaking through, without enumerating 195 countries.
+  # Timezone restrictions count as well, at UTC+8 give or take three hours.
+  #
+  # The term lists live in jobsift/filters.py and each can be replaced here by name:
+  # home_terms (PH places), home_region_terms (APAC/Asia — regions we sit inside),
+  # foreign_terms (countries, regions and timezone bands we do not), open_terms
+  # ("worldwide", "anywhere" — open, but naming no geography).
+  #
+  # ORDER is what makes it work. A term naming somewhere foreign is checked BEFORE a
+  # term saying the job is open, so "Anywhere (working US business hours)" is dropped
+  # rather than rescued by "anywhere". But home_terms and home_region_terms are
+  # checked before BOTH, so the common multi-region posting "Europe, North America,
+  # Latin America, APAC" is kept on "apac" instead of being binned on "america".
+  geography:
+    enabled: true
+    # Checked first and never overridable — the one list that beats a home match.
+    # Whole-word, against the listing's location, candidate-eligibility and
+    # country-code fields together.
+    exclude_locations: []
+    # What to do with a location we simply do not recognise — "Fort Bonifacio",
+    # "Eastwood City", an empty field. false keeps it and lets scoring judge, which
+    # is rule 4 and the safe default: silently binning missing data is how jobs were
+    # lost before. true keeps only listings that positively say they are open
+    # ("Worldwide", "Anywhere", "APAC"), which is stricter than it sounds — it would
+    # drop PH barangays the home list does not carry.
+    drop_when_unknown: false
   # Hourly rates are converted as rate x hours_per_month. 160 = 40h/week x 4.
   # Leave this commented out and a listing tagged part-time uses 80h instead,
   # since a part-time role genuinely will not deliver a full month's pay.
@@ -72,6 +171,14 @@ filters:
   # Rough PHP per USD, used only to compare a USD listing against the floor
   # below. Does not need to be a live rate.
   usd_to_php: 58
+  # Everything else the remote feeds price in. Defaults for ~30 currencies live in
+  # jobsift/filters.py (CURRENCY_TO_PHP); this only overrides the ones you name.
+  # Measured over 600 live listings: mostly USD, but EUR 12, CAD 7, GBP 4, plus
+  # INR/ARS/MXN/PHP. Without a rate those read ~50x low and were dropped as
+  # underpaid, which is the silent-wrong-number failure this project keeps hitting.
+  # currency_rates:
+  #   eur: 63
+  #   gbp: 74
   # Drop jobs whose listing states a degree as a HARD requirement. "preferred",
   # "or equivalent experience", and "unknown" all still pass — the judgement is
   # made by the scoring model from the listing text, not by keyword matching, so
@@ -79,13 +186,85 @@ filters:
   # NOTE: Indeed alert emails carry a ~160-character truncated snippet and Indeed
   # blocks fetching the full page (401/403), so for Indeed jobs this is usually
   # "unknown" and will not fire. It works on sources that give a full description.
-  exclude_degree_required: true
+  # Set FALSE 2026-09-01, deliberately. Plenty of good listings write "Bachelor's
+  # degree or higher in Computer Science" as boilerplate and hire on evidence of
+  # work; a candidate with 3 of 4 years completed and shipped production systems
+  # is worth letting through to be judged on the rest. The drafter never claims a
+  # credential the resume does not show, so a degree gap surfaces honestly in the
+  # application rather than being papered over.
+  #
+  # Note it barely fired anyway: the judgement comes from the SCORING model reading
+  # the posting, and Jobstreet/Indeed only ever supply a teaser, so the degree
+  # sentence was invisible on most sources.
+  exclude_degree_required: false
+  # ── Following links out of an email ──
+  # `enrich` fetches a URL that arrived in a message, and classify accepts mail on a
+  # subject keyword alone — so anything that can reach the inbox can choose a URL for
+  # this program to fetch. On a VPS that means 127.0.0.1, 169.254.169.254 (cloud
+  # instance credentials), a database admin page. jobsift/safefetch.py refuses all of
+  # them: https only, every resolved address must be public, the connection is pinned
+  # to the address that was checked (so DNS cannot answer differently the second
+  # time), and every redirect hop is re-checked.
+  fetch:
+    # Optional extra restriction: only fetch these hosts and their subdomains.
+    # EMPTY IS THE SENSIBLE DEFAULT — job links legitimately point at any employer's
+    # careers site or ATS, so a list here turns most enrichment off. The public-address
+    # rule above is what actually defends; this is for a locked-down deployment that
+    # only ever wants a known set of boards.
+    allow_hosts: []
+  # Drop listings older than this many days. Boards differ wildly in whether a
+  # filled role ever comes down — jobstreet ages out in weeks, onlinejobs.ph leaves
+  # postings up indefinitely. A live run surfaced a 199-day-old listing as an 86/100
+  # match and a 97-day-old one at 100/100; both are almost certainly filled, and the
+  # cost of chasing them is the one thing this pipeline cannot give back.
+  #
+  # In practice this is an ONLINEJOBS.PH filter, which is worth knowing before
+  # tuning it. Measured over one real run of 121 jobs:
+  #   indeed / linkedin   state no date at all -> never affected
+  #   jobstreet_api       26 of 28 were <=7 days old -> the cut barely applies
+  #   onlinejobs_ph       42 fresh, but 8 over 45 days and one at 199
+  # At 14 days it drops 16 of 121; at 45 it drops 8. The extra 8 are all
+  # onlinejobs listings between 15 and 45 days old.
+  #
+  # 14 is deliberate. The reason is not "apply first" — a big employer screens in
+  # batches and does not reward speed — it is that a board which never takes
+  # listings down cannot tell you which roles are already filled. On onlinejobs.ph
+  # a three-week-old post with no reply is usually dead, and the cost of finding
+  # that out is your own afternoon.
+  #
+  # A listing that states NO date is kept: unknown is not old, the same rule the
+  # salary and geography filters follow. Comment out to disable.
+  max_age_days: 14
+  # Monthly PHP CEILING. Two different things sit above it and neither is worth
+  # reading: a role well past your level (a US staff/principal listing at $230k a
+  # year is a real job and a real waste of an afternoon), and bad source data
+  # (jobicy published a "Customer Service Support Agent" at 25,000 USD *monthly* —
+  # $300k/year for a CS agent, almost certainly ₱25,000 mislabelled as dollars).
+  #
+  # Measured over 41 currently-passing jobs, median ₱120,000/mo:
+  #   200,000 drops 12    300,000 drops 10    400,000 drops 8    500,000 drops 6
+  # 500,000/mo is about USD 103k/year — comfortably above anything in the PH
+  # market, so it only ever cuts the international outliers. Lower it toward
+  # 300,000 if senior US roles still crowd the list.
+  #
+  # Comment out to disable the ceiling entirely.
+  max_salary_php: 500000
   # Monthly PHP floor. Ranges are judged on their LOW end — "PHP 18,000-40,000"
   # is a job that may pay 18,000. USD and hourly/weekly rates are converted.
   min_salary_php: 40000
   # Most listings state no salary at all. true drops them, false lets them
   # through to be scored on skills alone.
-  drop_when_salary_unknown: false
+  #
+  # Set true 2026-09-01, deliberately. It IS the strict reading: an unpriced job
+  # is dropped before it is ever scored, whatever it might have paid. The reason
+  # to accept that is volume — the new API sources publish far more than the
+  # inbox ever did, and an unpriced listing is the one kind that cannot be ranked
+  # against min_salary_php at all. Measured at the time: 5 of 15 email survivors
+  # were unpriced, and only 9 of 30 remote Jobstreet listings state a salary, so
+  # this is a real cut and not a formality.
+  #
+  # If good jobs start going missing, this is the first switch to flip back.
+  drop_when_salary_unknown: true
 
 # ── Which senders count as job alerts ──
 # You subscribe to alerts on each board yourself, pointed at your GMAIL_ADDRESS.
@@ -119,6 +298,13 @@ skip_link_domains:
   - upwork.com
   - indeed.com
   - onlinejobs.ph   # read via the scrape source below, which paces its own requests
+  # The canonical Jobstreet job page, which is 403 behind Cloudflare — fetching it
+  # only ever costs a request and returns nothing. Note this is deliberately the
+  # `ph.` host and NOT a bare "jobstreet.com": alert emails link to the
+  # url.jobstreet.com redirector, and following THAT is what resolves a 286-char
+  # tracking link down to a 37-char one. Skipping the redirector too would trade a
+  # wasted request for an unreadable link on the phone.
+  - ph.jobstreet.com
 
 # ── Optional non-email sources (OFF by default) ──
 # The email path is the default and the point of this project: boards email you,
@@ -126,6 +312,124 @@ skip_link_domains:
 # alerts at all. Enable deliberately, and read the board's Terms of Service first
 # — some prohibit automated access regardless of what their robots.txt allows.
 scrape_sources:
+  # ── Remote boards that publish a public JSON feed ──
+  # Four feeds, one adapter. Unauthenticated GETs returning JSON with the FULL
+  # posting text inline, which is what makes them worth having: enrich is skipped
+  # entirely and these are the only non-email jobs that reach `evidence: full`.
+  #
+  # Eligibility is the whole point here. These boards are worldwide, so "remote"
+  # says nothing about whether a Manila-based candidate may take the job — measured
+  # 2026-09-01, only 6-47% of listings are open to one. Each feed names the
+  # restriction differently (remotive candidate_required_location, workingnomads
+  # location, himalayas locationRestrictions + timezoneRestrictions, jobicy jobGeo)
+  # and the adapter maps all four onto `candidate_location`, which filters.geography
+  # then reads strictly. Turning geography off would make this source a firehose of
+  # US-only listings.
+  #
+  # Sizes differ wildly and are worth knowing: remotive returns 19 jobs TOTAL and
+  # ignores every query parameter; workingnomads ~45; himalayas 20 per page over
+  # ~105,000, cursor-paged, so max_pages is what controls its volume; jobicy up to
+  # 100 per call and it is the only one whose own geo filter matches what we want.
+  remote_feeds:
+    enabled: false
+    feeds: [remotive, workingnomads, himalayas, jobicy]
+    # Whole-word TITLE gate, applied before scoring — the same second gate
+    # onlinejobs_ph has and jobstreet_api gets from its search keywords. Without
+    # it these feeds were the only source with no keyword filter at all, and it
+    # showed: a jobicy page returned PreK Teacher, Early Childhood Teacher and
+    # Language Arts Teacher as "passing", because nothing had ever asked for
+    # developer roles. The feeds have no server-side keyword search to use
+    # instead, so the gate has to live here.
+    #
+    # include_keywords is a WHITELIST: a title must match one of these or it is
+    # dropped. Leave it empty to keep everything, which is the old behaviour.
+    include_keywords: [developer, engineer, engineering, full stack, fullstack,
+                       backend, back end, frontend, front end, web, software,
+                       react, node, python, javascript, typescript, django,
+                       laravel, php, golang, rust, java, api, devops, sre,
+                       platform, architect, programmer, data engineer, machine
+                       learning, ml, ai, llm, automation, qa, sdet, cloud]
+    # Fires only on titles that ALREADY passed include — the override for false
+    # positives, not a general junk filter. "engineer" catches Sales Engineer;
+    # "ai" would catch nothing on its own but "web" catches Web Content Writer.
+    exclude_keywords: [sales, account executive, recruiter, teacher, tutor,
+                       nurse, writer, copywriter, editor, designer, marketer,
+                       marketing, customer service, support agent, bookkeeper,
+                       accountant, paralegal, attorney, clerk]
+    max_pages: 5          # himalayas only — 20 jobs a page
+    delay_seconds: 1
+    # Per-feed settings, all optional.
+    jobicy:
+      # Server-side eligibility: returns Anywhere + APAC + Philippines + any
+      # multi-region listing that includes us. Their geo filter genuinely matches
+      # our geographic rule, so it is applied before anything crosses the wire.
+      # Set to "" to read the unfiltered feed instead. Note geo=asia is a 400.
+      geo: philippines
+      # 200, not 100. Their docs cap `count` at 100 and the parameter silently
+      # accepts more: 200 returns 200 (500 and 1000 also return 200, so that is the
+      # real ceiling). It matters more than a bigger number usually does — at 100
+      # the window was only 9 days and ONE employer, Canonical, was 61% of it. At
+      # 200 the window is three weeks, 51 companies instead of 21, and Canonical is
+      # 36%. Same single request either way.
+      count: 200
+  # ── Jobstreet PH, via the SEEK v5 search API ──
+  # Not a scraper: one unauthenticated GET returning JSON. No HTML parsing, no LLM
+  # extract call, no page fetch. It exists because the Jobstreet *page* is 403
+  # behind Cloudflare, so jobs arriving by email are scored on whatever the alert
+  # quoted — while the search API hands over salary, work arrangement and country
+  # already structured.
+  #
+  # What it CANNOT give is the posting itself. Only search is open, so each job
+  # carries `teaser` (~100 chars) plus any bullet points. That is under the 400-char
+  # snippet threshold, so these score in snippet mode and Telegram flags them as
+  # such. Two consequences worth knowing rather than discovering:
+  #   * exclude_degree_required will not fire here — the degree sentence lives in
+  #     the posting we are never shown.
+  #   * the score is a ranking signal, not a verdict. Open the link before applying.
+  #
+  # Emitted with source "jobstreet_api" rather than "jobstreet", so rows found this
+  # way stay distinguishable from the ones the email alerts brought in.
+  jobstreet_api:
+    enabled: false
+    max_pages: 2          # pages per keyword, newest first
+    page_size: 30         # up to 100 is accepted
+    delay_seconds: 2
+    # Filtered SERVER-side, so on-site jobs are never downloaded to be discarded.
+    # Names map to the API's codes; omit or leave empty to accept every arrangement.
+    # Measured 2026-09-01 on keywords=developer: remote 743, +hybrid 1,955, all 4,230.
+    work_arrangements: [remote, hybrid]
+    # One search per term, deduped on the listing id. These drive SEEK's own search,
+    # which is far better targeted than onlinejobs.ph's — the results below were
+    # Jr. Data Engineer, Software Engineer - NestJS, DevOps Engineer, Mid .Net
+    # Developer, so the include/exclude second gate that board needs is not required
+    # here. exclude_titles still applies, as it does to every source.
+    # Measured 2026-09-01 by counting NEW jobs each term brings that survive the
+    # hard filters. Two lessons: "automation engineer" and "ai automation" add
+    # NOTHING (SEEK's fuzzy search already covers them from the terms above), while
+    # `n8n` — a tool name, not a job title — was the single best term of the ten
+    # tried, finding Agentic & Automation Engineer (₱100-150k) and Business
+    # Automation & AI Specialist (₱125-150k). Search for the tools you use, not
+    # only for the titles you want.
+    #
+    # `automation` had been in priority_keywords only, which is a SCORING bonus and
+    # cannot find a job the search never fetched.
+    search_keywords: [python developer, software engineer, full stack developer,
+                      backend developer, devops engineer, ai engineer,
+                      ai developer, web developer, automation specialist,
+                      integration engineer, rpa developer, n8n]
+    # The second gate, matching what onlinejobs_ph and remote_feeds have. It exists
+    # because the broader keywords above drag in adjacent work: "automation
+    # specialist" returns Funnel Builder Virtual Assistant, "rpa developer" returns
+    # ABAP Developer Trainer, "integration engineer" returns ERP Project Manager.
+    # Title only, whole word, applied before any scoring call.
+    include_keywords: [developer, engineer, programmer, architect, specialist,
+                       automation, software, web, full stack, fullstack, backend,
+                       frontend, data, ai, ml, python, javascript, typescript,
+                       react, node, api, devops, sre, cloud, platform, analyst]
+    exclude_keywords: [virtual assistant, assistant, trainer, teacher, tutor,
+                       project manager, product manager, account manager, sales,
+                       recruiter, nurse, accountant, bookkeeper, funnel,
+                       gohighlevel, ghl, copywriter, writer, seo]
   onlinejobs_ph:
     enabled: false
     max_pages: 2          # 30 listings/page; one page is only ~20h of a broad keyword
@@ -157,9 +461,14 @@ scrape_sources:
     # "software" catches "Mozaik Software", "web" catches "Web Content Writer".
     fetch_details: true
     search_keywords: [developer, engineer, full stack, react, node, python,
-                      javascript, laravel, api, automation]
+                      javascript, laravel, api, automation, ai, n8n]
+    # `automation` and `ai` were in search_keywords but NOT here, which meant the
+    # adapter asked the board for automation work and then threw it away at this
+    # gate. Added 2026-09-01 so the two lists agree. `senior`/`sr` need no entry —
+    # they live in the shared filters.exclude_titles and apply to every source.
     include_keywords: [developer, engineer, full stack, fullstack, backend, front end,
-                       frontend, web, software, react, node, python, javascript, api]
+                       frontend, web, software, react, node, python, javascript, api,
+                       automation, ai, ml, llm, n8n, integration, scripting, data]
     exclude_keywords: [drafter, furniture, cad, autocad, content writer, copywriter,
                        video editor, bookkeeper]
 

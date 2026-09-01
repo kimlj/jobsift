@@ -1,12 +1,13 @@
 # jobsift
 
 A self-hosted, open-source job-hunting pipeline — a plain Python script, **no n8n, no
-subscription.** Instead of scraping job boards (fragile, rate-limited, constantly
-blocked), it lets the **boards email you** and turns your inbox into the data source.
+subscription.** Rather than scraping job boards (fragile, rate-limited, constantly
+blocked), it lets the **boards email you** and turns your inbox into the data source —
+alongside opt-in adapters for the boards that publish a real JSON API.
 
 ```
 poll Gmail (IMAP) → find job emails (known senders / keywords)
-   → LLM extract listings → dedup (title::company)
+   → LLM extract listings → dedup (normalised title::company)
    → follow link + LLM enrich (skip login-walled domains)
    → score vs your resume (skills/30 + experience/30 + salary/40)
    → save to SQLite → Google Sheet archive → Telegram alert if score ≥ threshold
@@ -15,17 +16,37 @@ poll Gmail (IMAP) → find job emails (known senders / keywords)
 You subscribe to job alerts on each board once (Indeed, LinkedIn, Foundit, Jobstreet,
 remote & PH boards…), point them at one Gmail, and the script does the rest.
 
-Some boards offer no email alerts at all. For those there is an **optional, opt-in
-source adapter** (`jobsift/sources/`) that reads a public listing directly — off by
-default, paced to the site's robots.txt `Crawl-delay`. Email remains the default and
-the recommended path; read a board's Terms of Service before enabling an adapter,
-since some prohibit automated access regardless of what their robots.txt allows.
+Some boards give you more than an email will. For those there are **optional, opt-in
+source adapters** (`jobsift/sources/`), all off by default:
 
-## Why email-ingestion beats scraping
+- **A public JSON API, where one exists** — Jobstreet PH rides on SEEK's search API,
+  which hands over salary in pesos-per-month, work arrangement and country already
+  structured. Four remote boards (remotive, Working Nomads, himalayas, jobicy) go
+  further and include the **whole posting** in the feed, so there is no page to
+  follow at all. One GET, no HTML, no LLM extract call.
+- **An HTML listing, as a last resort** — onlinejobs.ph is a profile-first marketplace
+  that emits no job emails at all. Paced to the site's robots.txt `Crawl-delay`, and
+  read a board's Terms of Service before enabling it: some prohibit automated access
+  regardless of what their robots.txt allows.
 
-Every board already offers email alerts. Subscribing gives you a clean, structured feed
-that never gets Cloudflare-blocked and never rots when a site changes its HTML. One
-inbox replaces a dozen brittle scrapers.
+## Where each source should come from
+
+Three tiers, and the ranking is not the obvious one:
+
+1. **A public JSON API.** Best when it exists. It is not scraping — nothing is parsed
+   out of a page, nothing breaks when the CSS changes, and the fields arrive typed.
+   It also reaches what email cannot: Jobstreet's own alert emails carry a teaser, and
+   its job page is 403 behind Cloudflare, so email-only scoring was working from
+   whatever the alert happened to quote.
+2. **The board's email alerts.** The default, and the only thing that reaches
+   auth-gated boards — Indeed, LinkedIn and Foundit have no open API and are most of
+   the PH market. Every board already offers alerts; subscribing gives a feed that
+   never gets Cloudflare-blocked and never rots when a site changes its HTML.
+3. **Reading the HTML listing.** Genuinely fragile and rate-limited, and worth it only
+   for a board that offers neither of the above.
+
+The original argument here was "email beats scraping". That is true of tier 3 and
+false of tier 1, which was worth writing down after measuring both.
 
 ## Everything is a param
 
