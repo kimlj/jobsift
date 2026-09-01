@@ -52,6 +52,7 @@ class Config:
     telegram_options: dict = field(default_factory=dict)
     scrape_sources: dict = field(default_factory=dict)
     filters: dict = field(default_factory=dict)
+    scrape_interval_seconds: int = 1200
     google_sheet: GoogleSheetConfig = field(default_factory=GoogleSheetConfig)
 
     @property
@@ -110,6 +111,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         telegram_enabled=bool(data.get("telegram_enabled", True)),
         scrape_sources=dict(data.get("scrape_sources") or {}),
         filters=dict(data.get("filters") or {}),
+        scrape_interval_seconds=int(data.get("scrape_interval_seconds") or 1200),
         google_sheet=google_sheet,
     )
 

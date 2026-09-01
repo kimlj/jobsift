@@ -39,6 +39,84 @@ def evidence_chars(job: dict) -> int:
     ]
     return len(" ".join(part for part in parts if part.strip()).strip())
 
+# ── Dedup ───────────────────────────────────────────────────────────────────
+#
+# Jobs are deduped on title::company, which fails the moment one board writes the
+# employer's name differently from another — or from itself. "WeSupport
+# Incorporated" and "WeSupport, Inc." are one company advertising one job, and the
+# exact-match key saved it twice in a single Jobstreet run.
+#
+# The asymmetry that decides how hard to normalise: a missed duplicate costs one
+# extra line in Telegram, while a wrong merge silently loses a real job and nothing
+# reports it. So the company side is normalised hard, because legal suffixes carry
+# no identity, and the title side only lightly, because two genuinely different
+# roles at one employer often differ by punctuation alone.
+
+# Dropped only from the END of a name, repeatedly: "Foo Systems Pte Ltd" -> "foo
+# systems". Words that look corporate but carry identity are deliberately absent —
+# "group", "global", "holdings", "solutions", "technologies", "services" all
+# distinguish real companies from each other.
+_LEGAL_SUFFIXES = {
+    "inc", "incorporated", "corp", "corporation", "company", "co", "ltd",
+    "limited", "llc", "llp", "lp", "plc", "pte", "pty", "bhd", "sdn", "gmbh",
+    "ag", "bv", "nv", "sa", "sas", "srl", "spa", "oy", "ab", "kk", "kft", "sro",
+    "dmcc", "fzco", "fze", "ou", "aps",
+    # A PH job board is full of "<company> Philippines" arms of one employer.
+    "philippines", "philippine", "phils", "ph",
+}
+
+# Left dangling once a suffix goes: "Accenture in the Philippines" would otherwise
+# key as "accenture in the".
+_TRAILING_FILLER = {"in", "the", "of", "and", "at", "for"}
+
+_PARENTHETICAL_RE = re.compile(r"\([^)]*\)")
+_NON_WORD_RE = re.compile(r"[^\w\s]+", re.UNICODE)
+
+
+def normalize_company(name: str) -> str:
+    """An employer name reduced to the part that identifies it.
+
+    "WeSupport, Inc." and "WeSupport Incorporated" both become "wesupport";
+    "REALPAGE (PHILIPPINES) INC." becomes "realpage".
+    """
+    text = (name or "").lower()
+    # "(Philippines)", "(Clark)", "(formerly X)" — a parenthetical in an employer
+    # name is a qualifier on the same company, never a different one.
+    text = _PARENTHETICAL_RE.sub(" ", text)
+    text = _NON_WORD_RE.sub(" ", text)
+    words = text.split()
+    while words and words[-1] in (_LEGAL_SUFFIXES | _TRAILING_FILLER):
+        words.pop()
+    return " ".join(words)
+
+
+def normalize_title(title: str) -> str:
+    """A job title with punctuation and spacing flattened, and nothing else.
+
+    Deliberately light. Boards decorate titles with the same information they also
+    put in structured fields — "(Hybrid)", "| WFH", "- Urgent" — and stripping
+    those would merge "Senior AI Engineer - Hybrid" into "Senior AI Engineer" at
+    the same employer, which may well be two different openings.
+    """
+    return " ".join(_NON_WORD_RE.sub(" ", (title or "").lower()).split())
+
+
+def job_key(job: dict) -> str:
+    """The dedup identity of a listing: normalised title::company.
+
+    Lives here rather than in pipeline.py so `store` can use it to migrate keys
+    written in the older exact-match format without importing the pipeline.
+    """
+    company = normalize_company(job.get("company"))
+    if not company:
+        # Some sources (onlinejobs.ph listings) never name the employer. Falling
+        # back to the URL slug keeps two different postings that share a title
+        # from collapsing into one entry.
+        url = str(job.get("url") or "").strip().rstrip("/")
+        company = normalize_company(url.rsplit("/", 1)[-1][:80]) if url else ""
+    return f"{normalize_title(job.get('title'))}::{company}"
+
+
 # Characters that routinely sit right after a URL in prose or in bracketed link
 # markup but are not part of it. \S+ above is greedy, so "[https://x/y]" would
 # otherwise capture the closing bracket and produce a URL that 400s.

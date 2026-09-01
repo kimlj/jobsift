@@ -9,27 +9,21 @@ from .classify import classify
 from .enrich import enrich_job
 from .extract import extract_jobs
 from .filters import check as passes_filters
-from .utils import strip_tracking_params
+from .filters import is_remote
+from .utils import job_key, strip_tracking_params
 from .score import score_job
 from .sources import collect as collect_scraped
 
 logger = logging.getLogger(__name__)
 
 
-def _job_key(job: dict) -> str:
-    title = (job.get("title") or "").strip()
-    company = (job.get("company") or "").strip()
-    if not company:
-        # Some sources (onlinejobs.ph listings) never name the employer. Falling
-        # back to the URL slug keeps two different postings that share a title
-        # from collapsing into one entry.
-        url = (job.get("url") or "").strip().rstrip("/")
-        company = url.rsplit("/", 1)[-1][:80] if url else ""
-    return f"{title}::{company}".lower()
+# Defined in utils so `store` can reuse it for the key migration. Kept under this
+# name because both dry-run scripts import it from here.
+_job_key = job_key
 
 
 def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
-    remote = job.get("remote") or "upwork.com" in (job.get("url") or "")
+    remote = is_remote(job) or "upwork.com" in (job.get("url") or "")
     now = datetime.now().isoformat(timespec="seconds")
     return {
         "timestamp": email_date or now,
@@ -38,6 +32,9 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "company": job.get("company") or "N/A",
         "location": job.get("location") or "N/A",
         "remote": "Yes" if remote else "No",
+        # The board's own word for it, kept alongside the derived flag so a row can
+        # be read back without re-deriving anything. Empty on sources that do not say.
+        "work_arrangement": job.get("work_arrangement") or "",
         "salary": job.get("salary") or "N/A",
         "skills_required": ", ".join(job.get("skills_required") or []) or "N/A",
         "job_type": job.get("job_type") or "N/A",
@@ -101,7 +98,8 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
                 logger.info("  filtered: %s @ %s — %s", job.get("title"), job.get("company"), why)
                 continue
 
-            job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
+            job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains,
+                             allow_hosts=(config.filters.get("fetch") or {}).get("allow_hosts"))
             score = score_job(
             llm, config.models["score"], job, resume, config.salary_baseline_php,
                 config.priority_keywords, config.priority_points,
@@ -131,7 +129,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
 
     # Optional non-email sources (opt-in, off by default). They emit the same job
     # dicts the extractor does, so they reuse the identical tail of the pipeline.
-    for job in collect_scraped(config):
+    for job in collect_scraped(config, store):
         key = _job_key(job)
         if key == "::" or store.is_job_seen(key):
             continue
@@ -143,7 +141,8 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
             continue
 
         source = job.get("source") or "scraped"
-        job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains)
+        job = enrich_job(llm, config.models["enrich"], job, config.skip_link_domains,
+                         allow_hosts=(config.filters.get("fetch") or {}).get("allow_hosts"))
         score = score_job(
             llm, config.models["score"], job, resume, config.salary_baseline_php,
                 config.priority_keywords, config.priority_points,
