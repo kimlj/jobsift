@@ -93,6 +93,31 @@ def main() -> None:
              "truncated snippet and Indeed blocks fetching the page, so paste the real "
              "posting here to draft against everything the employer actually wrote.",
     )
+    parser.add_argument(
+        "--export",
+        metavar="FILE",
+        nargs="?",
+        const="jobs.csv",
+        help="Write every stored job to a CSV for Excel and exit — every field, one row "
+             "each, highest score first. Telegram only ever shows the jobs over the "
+             "alert threshold; this is everything that was gathered.",
+    )
+    parser.add_argument("--min-score", type=int, default=0, help="With --export: only rows at or above this score")
+    parser.add_argument("--source", default="", help="With --export: only rows whose source matches")
+    parser.add_argument(
+        "--only-passing",
+        action="store_true",
+        help="With --export: drop rows that today's filters would reject. Filters run "
+             "at ingest, so tightening one leaves already-stored jobs in place — this "
+             "re-checks them. Without it every row is kept and the `verdict` column "
+             "says which would now be dropped and why.",
+    )
+    parser.add_argument(
+        "--no-telegram",
+        action="store_true",
+        help="Run normally but send nothing to Telegram. Everything is still scored and "
+             "stored, so a first run can be inspected with --export before any alert fires.",
+    )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--env", default=".env", help="Path to .env")
     args = parser.parse_args()
@@ -107,6 +132,18 @@ def main() -> None:
 
     if args.draft:
         _run_draft(args, config)
+        return
+
+    if args.export:
+        from .export import rows, summarise, to_csv
+
+        records = rows(config.database_path, min_score=args.min_score,
+                       source=args.source, settings=config.filters)
+        if args.only_passing:
+            records = [r for r in records if r.get("verdict") == "kept"]
+        count = to_csv(records, args.export)
+        print(summarise(records))
+        print(f"\nwrote {count} row(s) to {args.export}")
         return
 
     llm = build_llm(
@@ -133,7 +170,9 @@ def main() -> None:
             log.exception("Could not init Google Sheet — continuing without it")
 
     telegram_send = None
-    if config.telegram_active:
+    if args.no_telegram:
+        log.info("Telegram suppressed (--no-telegram); jobs are still scored and stored")
+    elif config.telegram_active:
         from .notify import send_telegram
 
         telegram_send = lambda record: send_telegram(
