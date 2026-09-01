@@ -33,3 +33,8 @@ nul
 
 # Applier profile (facts used to answer employer questions)
 profile.yaml
+
+# Reports the export and dry-run tools write. Generated on demand from the
+# database, and they contain the actual job listings a run collected.
+jobs-*.csv
+unpriced-report.*
