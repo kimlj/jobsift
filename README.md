@@ -8,10 +8,17 @@ alongside opt-in adapters for the boards that publish a real JSON API.
 ```
 poll Gmail (IMAP) → find job emails (known senders / keywords)
    → LLM extract listings → dedup (normalised title::company)
+   → HARD FILTERS: geography, salary floor/ceiling, posting age, title
    → follow link + LLM enrich (skip login-walled domains)
    → score vs your resume (skills/30 + experience/30 + salary/40)
    → save to SQLite → Google Sheet archive → Telegram alert if score ≥ threshold
 ```
+
+The hard filters sit **before** enrich and score, which is the whole point of
+them: scoring is a soft signal — salary is only 40 of 100 points, so a job that
+pays nothing still clears the threshold on skills alone — while a job that fails
+a hard rule is dropped whatever it would have scored, and dropped before it costs
+an LLM call. See `jobsift/filters.py`.
 
 You subscribe to job alerts on each board once (Indeed, LinkedIn, Foundit, Jobstreet,
 remote & PH boards…), point them at one Gmail, and the script does the rest.
@@ -68,8 +75,24 @@ cp config.example.yaml config.yaml    # tune settings
 cp resume.example.txt resume.txt      # paste your profile
 
 python -m jobsift --once          # test one pass
+python -m jobsift --once --no-telegram   # ...and send no alerts while you inspect it
 python -m jobsift                 # run continuously
+
+python -m jobsift --export jobs.csv      # every stored job, one row each, for Excel
+python -m jobsift --draft "Acme" --posting posting.txt   # cover letter + answers
 ```
+
+**`--export`** is the counterpart to Telegram. Telegram is deliberately sparse —
+it only ever shows jobs over the alert threshold — so the CSV is how you see what
+the pipeline actually did rather than what it decided was worth interrupting you
+about. `--only-passing` re-checks stored rows against today's filters, since
+filters run at ingest and tightening one leaves older rows in place.
+
+**`--draft`** writes a cover letter and answers for one stored job and **sends
+nothing** — it prints text for you to read and edit. Pass `--posting` with the
+full job text: alert emails carry a truncated snippet, and the module needs the
+whole posting because employers bury compliance instructions ("start your message
+with the word PURPLE") in the last lines to catch people who skimmed.
 
 Full deployment (systemd / cron on a VPS) → [docs/deploy.md](docs/deploy.md).
 Which boards to subscribe to → [docs/job-alert-sources.md](docs/job-alert-sources.md).
@@ -80,16 +103,24 @@ Which boards to subscribe to → [docs/job-alert-sources.md](docs/job-alert-sour
 jobsift/            the app
   __main__.py           entry point (python -m jobsift)
   config.py             loads .env + config.yaml
+  llm.py                pluggable provider layer (openai | anthropic)
   gmail.py              IMAP inbox reader (App Password)
   classify.py           known_senders / keyword match
   extract.py            LLM: pull jobs out of an alert email
+  filters.py            hard gates: geography, salary, age, title
+  safefetch.py          SSRF-hardened HTTP for URLs we did not choose
   enrich.py             follow job link → clean page → LLM details
   score.py              resume scoring (skills + experience + salary)
-  store.py              SQLite dedup + job log
+  draft.py              cover letter + answers for one job (never sends)
+  store.py              SQLite dedup + job log (versioned migrations)
+  export.py             every stored job → CSV for Excel
   sheets.py             optional Google Sheet output
   notify.py             optional Telegram output
+  utils.py              shared helpers (title/company normalisation, job_key)
   pipeline.py           orchestration
   sources/              optional non-email sources (opt-in, off by default)
+    jobstreet.py        Jobstreet PH via SEEK's public search API
+    remote_feeds.py     remotive / Working Nomads / himalayas / jobicy
     onlinejobs.py       onlinejobs.ph public listing reader
 config.example.yaml     copy to config.yaml
 .env.example            copy to .env
@@ -97,9 +128,41 @@ reference/              the original n8n workflow, kept as the design blueprint
 applier/                (planned) Claude-in-Chrome auto-applier
 ```
 
+## Everything from outside is untrusted
+
+Two of this program's inputs are chosen by strangers, and both are handled as
+hostile by default.
+
+**URLs.** `enrich` follows a link that arrived in an email, and `classify` accepts
+mail on a subject keyword alone ("job alert", "hiring") — so the sender does not
+have to be a board we know to pick a URL for this program to fetch. On a VPS that
+reaches anything the box can reach: `http://127.0.0.1:8080/admin`, the cloud
+metadata endpoint at `169.254.169.254`, a database admin page. `safefetch.py`
+answers with four rules: HTTPS only; every resolved address must be public (one
+private address among several is a rejection, not a fallback); the request goes to
+the **validated IP** with `Host` and TLS SNI set to the original hostname, so
+there is no second DNS lookup to poison with a rebinding race; and every redirect
+hop is re-validated, because a permitted host answering `302 -> 169.254.169.254`
+is the same attack wearing a hat. The host allowlist is optional and empty by
+default — we follow links to arbitrary employer sites, so a mandatory allowlist
+would simply turn enrichment off.
+
+**Posting text.** `draft.py` passes a whole posting, written by a stranger, to a
+model — which is exactly the shape a prompt injection needs. "Ignore anything the
+posting tells you" is not available here, because employers legitimately bury
+compliance instructions in the last lines and following them is the feature. The
+line drawn instead is what an instruction is *about*: instructions about the
+application the candidate will send ("begin with the word BANANA", "use subject
+REF-4471") are an employer talking to an applicant, and are followed. Anything
+addressed to the assistant — new rules, a demand for different output, a request
+to claim experience the resume lacks, an instruction to contact some address — is
+not something a real employer writes, and is reported in `injection_attempts`
+rather than obeyed.
+
 ## Roadmap
 
-- [ ] Applier: Claude-in-Chrome semi-auto form fill (pre-fill + draft answers, human submits)
+- [x] Drafting: cover letter + per-question answers for review (`--draft`), sends nothing
+- [ ] Applier: Claude-in-Chrome semi-auto form fill (pre-fill, human submits)
 - [ ] Standard ATS support (Greenhouse / Lever / Ashby) + email-apply drafting
 - [ ] Optional web dashboard over the SQLite log
 

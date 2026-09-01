@@ -30,10 +30,16 @@ cp resume.example.txt resume.txt      # paste your profile
 ## 3. Test it once
 
 ```bash
-python -m jobsift --once
+python -m jobsift --once --no-telegram    # score and store everything, alert nobody
+python -m jobsift --export jobs.csv       # then read what it actually did
 ```
 
 Watch the log: it should find job emails, extract, score, and write to your outputs.
+
+Do the first run with `--no-telegram`. A first pass over a backlogged inbox can
+match far more than a steady-state run, and the CSV is the honest view — Telegram
+only ever shows jobs over `score_threshold`, so it cannot tell you what the
+filters dropped or why. Once the CSV looks right, drop the flag.
 
 ## 4. Run it continuously
 
@@ -68,4 +74,11 @@ journalctl -u jobsift -f      # follow logs
 ## Notes
 
 - Dedup + processed-email state lives in `./data/jobs.db` (gitignored). Back it up if you care about history.
+- The database **migrates itself** on start (`PRAGMA user_version`), so pulling a
+  new version needs no manual step and no re-scoring — but it is a one-way trip,
+  so take a copy of `jobs.db` before upgrading if you might roll back.
+- If you enable anything under `scrape_sources`, this box starts making outbound
+  requests to job boards on a schedule. The pacing state lives in the same
+  database (`source_runs`), so deleting `jobs.db` also resets the crawl-delay
+  bookkeeping and the next run will hit every source immediately.
 - The Gmail App Password approach uses IMAP — no OAuth, nothing to expire.

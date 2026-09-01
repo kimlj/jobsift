@@ -413,10 +413,17 @@ scrape_sources:
     #
     # `automation` had been in priority_keywords only, which is a SCORING bonus and
     # cannot find a job the search never fetched.
+    #
+    # Tool names, added 2026-09-01. The measurement that prompted them: `n8n` was
+    # the best single term of the ten tried above, while "automation engineer" and
+    # "ai automation" added nothing. An employer who names the tool is describing
+    # the actual work; one who writes "AI Engineer" is often describing something
+    # else. So search what you would use, not what the role might be called.
     search_keywords: [python developer, software engineer, full stack developer,
                       backend developer, devops engineer, ai engineer,
                       ai developer, web developer, automation specialist,
-                      integration engineer, rpa developer, n8n]
+                      integration engineer, rpa developer, n8n,
+                      claude, cursor, supabase, openai, open ai, api]
     # The second gate, matching what onlinejobs_ph and remote_feeds have. It exists
     # because the broader keywords above drag in adjacent work: "automation
     # specialist" returns Funnel Builder Virtual Assistant, "rpa developer" returns
@@ -460,8 +467,11 @@ scrape_sources:
     # in the first place. Put the words here that broad include terms let through:
     # "software" catches "Mozaik Software", "web" catches "Web Content Writer".
     fetch_details: true
+    # `api`, `ai`, `automation` and `n8n` were already here; the tool names join
+    # them for the reason documented on jobstreet_api above.
     search_keywords: [developer, engineer, full stack, react, node, python,
-                      javascript, laravel, api, automation, ai, n8n]
+                      javascript, laravel, api, automation, ai, n8n,
+                      claude, cursor, supabase, openai, open ai]
     # `automation` and `ai` were in search_keywords but NOT here, which meant the
     # adapter asked the board for automation work and then threw it away at this
     # gate. Added 2026-09-01 so the two lists agree. `senior`/`sr` need no entry —
