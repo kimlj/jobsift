@@ -39,6 +39,15 @@ class Store:
                 key TEXT PRIMARY KEY,
                 first_seen INTEGER
             );
+            CREATE TABLE IF NOT EXISTS applied_jobs (
+                url TEXT PRIMARY KEY,
+                title TEXT,
+                company TEXT,
+                board TEXT,
+                receipt INTEGER,
+                evidence TEXT,
+                detected_at INTEGER
+            );
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key TEXT,
@@ -155,6 +164,28 @@ class Store:
             ),
         )
         self.conn.commit()
+
+    # -- applications the boards confirmed --
+    def mark_applied(self, url: str, confirmation) -> bool:
+        """Record one confirmed application. True if this is the first time.
+
+        The subject line is kept as `evidence` because this is the one column
+        the program fills in on the user's behalf, and "which email said so" is
+        the only way to argue with it later.
+        """
+        cur = self.conn.execute(
+            "INSERT OR IGNORE INTO applied_jobs "
+            "(url, title, company, board, receipt, evidence, detected_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (url, confirmation.title, confirmation.company, confirmation.board,
+             1 if confirmation.receipt else 0, confirmation.subject, int(time.time())),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def applied_urls(self) -> set[str]:
+        """Every url a board has confirmed. Survives the sheet being off."""
+        return {row[0] for row in self.conn.execute("SELECT url FROM applied_jobs")}
 
     def cleanup(self, days: int = 30) -> None:
         """Forget dedup keys and processed-email uids older than `days`."""

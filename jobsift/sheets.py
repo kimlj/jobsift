@@ -194,6 +194,50 @@ class SheetWriter:
                     out.add(url)
         return out
 
+    def _url_rows(self, ws) -> dict[str, int]:
+        """url -> its 1-based row on this tab."""
+        import re
+
+        url_col = HEADERS.index("url")
+        try:
+            cells = ws.col_values(url_col + 1, value_render_option="FORMULA")
+        except Exception as err:
+            logger.warning("could not read url column on %s: %s", ws.title, err)
+            return {}
+        out: dict[str, int] = {}
+        for i, cell in enumerate(cells[1:], start=2):
+            match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
+            url = match.group(1) if match else str(cell).strip()
+            if url:
+                out.setdefault(url, i)
+        return out
+
+    def mark_applied(self, urls) -> int:
+        """Tick the applied box on every row whose url is in `urls`.
+
+        Only ever writes TRUE. An unticked row is not evidence of anything —
+        the boards confirm applications, they do not confirm the absence of one —
+        so a row the user ticked by hand is never cleared by this.
+        """
+        wanted = set(urls)
+        if not wanted:
+            return 0
+        applied_col = HEADERS.index("applied")
+        letter = chr(ord("A") + applied_col)
+        ticked = 0
+        for ws in self._tabs():
+            rows = [row for url, row in self._url_rows(ws).items() if url in wanted]
+            if not rows:
+                continue
+            try:
+                ws.batch_update([
+                    {"range": f"{letter}{row}", "values": [["TRUE"]]} for row in sorted(rows)
+                ], value_input_option="USER_ENTERED")
+                ticked += len(rows)
+            except Exception as err:
+                logger.warning("could not tick applied on %s: %s", ws.title, err)
+        return ticked
+
     def existing_urls(self) -> set[str]:
         """Every url already in either tab.
 

@@ -56,6 +56,48 @@ class GmailReader:
                 pass
         return messages
 
+    def fetch_confirmations(self, senders, lookback_days: int = 90) -> list[dict]:
+        """Messages from the boards that send application receipts.
+
+        Searched per sender rather than over the whole mailbox, so the download
+        is a few dozen messages instead of every alert the inbox has ever held —
+        and it reads All Mail, because a receipt from three months ago has long
+        been archived out of the inbox.
+        """
+        messages: list[dict] = []
+        conn = imaplib.IMAP4_SSL(IMAP_HOST)
+        try:
+            conn.login(self.address, self.app_password)
+            try:
+                conn.select('"[Gmail]/All Mail"', readonly=True)
+            except Exception:
+                conn.select("INBOX", readonly=True)
+            since = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%d-%b-%Y")
+            for sender in senders:
+                typ, data = conn.uid("search", None, f'(SINCE {since} FROM "{sender}")')
+                if typ != "OK" or not data or not data[0]:
+                    continue
+                for uid in data[0].split():
+                    typ, msg_data = conn.uid("fetch", uid, "(RFC822)")
+                    if typ != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
+                        continue
+                    msg = email.message_from_bytes(msg_data[0][1])
+                    messages.append(
+                        {
+                            "uid": uid.decode() if isinstance(uid, bytes) else str(uid),
+                            "from": parseaddr(msg.get("From", ""))[1].lower(),
+                            "subject": self._decode(msg.get("Subject", "")),
+                            "date": msg.get("Date", ""),
+                            "text": self._get_text(msg),
+                        }
+                    )
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+        return messages
+
     @staticmethod
     def _decode(value: str) -> str:
         if not value:

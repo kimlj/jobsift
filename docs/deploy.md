@@ -94,6 +94,35 @@ python -m jobsift --backfill-sheet --min-score 0 --only-passing
 fills the tabs from jobs already in the database — safe to re-run, as it skips
 every url the sheet already holds.
 
+### The applied box mostly ticks itself
+
+Indeed and Jobstreet email a receipt when an application goes in, and jobsift
+already reads that mailbox, so the tick can come from mail addressed to you
+rather than from scraping a board you are logged in to. Every run does this;
+`--scan-applied` does it on demand over a longer window:
+
+```bash
+python -m jobsift --scan-applied 180    # 180 days back; default is 90
+```
+
+It costs nothing — a regex over mail already in the account, no LLM call.
+
+| board | what it sends |
+|---|---|
+| Indeed | `Indeed Application: <title>` on submission. Names no company |
+| Jobstreet | `Your application was successfully submitted`, naming title and employer |
+| Jobstreet | `<employer> has viewed your application for <title>`. Not a receipt, but nobody views an application that was never sent, so it only ever adds a tick |
+| onlinejobs.ph | Unknown — no evidence either way. Add a rule to `jobsift/applied.py` if a receipt turns up |
+
+Two things it will not do. It **never unticks** a row: the boards confirm
+applications, not their absence, so a tick you made by hand always stands. And a
+receipt that names only a title, matching two stored jobs with that title, is
+reported rather than guessed at — a tick on the wrong row hides a job you never
+applied to, which is worse than no tick at all.
+
+`--skip-applied` reads both the database and your own ticks, so it works whether
+the mark came from a receipt or from you.
+
 ## 3. Test it once
 
 ```bash

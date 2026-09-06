@@ -62,6 +62,38 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
     }
 
 
+def _record_applications(config, store, sheet, messages) -> int:
+    """Tick jobs the boards have confirmed an application for. Returns how many
+    are newly marked.
+
+    Runs over the messages already fetched, before classify() sees them: a
+    receipt is not a job alert, so it is dropped and marked processed, and
+    nothing would ever look at it again. Costs one regex pass and no LLM call.
+    """
+    from .applied import detect, match_to_jobs
+    from .export import rows as stored_rows
+
+    confirmations = [c for c in (detect(m) for m in messages) if c]
+    if not confirmations:
+        return 0
+
+    records = stored_rows(config.database_path, settings=config.filters)
+    matched, unmatched = match_to_jobs(confirmations, records)
+    fresh = [url for url, c in matched.items() if store.mark_applied(url, c)]
+
+    for c in unmatched:
+        logger.info("  application with no stored job: %s%s",
+                    c.title, f" @ {c.company}" if c.company else "")
+    if fresh:
+        logger.info("Marked %d job(s) applied from inbox confirmations", len(fresh))
+        if sheet is not None:
+            try:
+                sheet.mark_applied(store.applied_urls())
+            except Exception:
+                logger.exception("Could not tick applied in the sheet")
+    return len(fresh)
+
+
 def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) -> int:
     """Process the inbox once. Returns the number of new jobs handled."""
     first_run = store.is_fresh_install()
@@ -70,6 +102,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
         logger.info("Fresh install — backfilling %d day(s) of inbox history", lookback)
     messages = gmail.fetch_recent(lookback_days=lookback)
     logger.info("Fetched %d inbox message(s) (lookback %dd)", len(messages), lookback)
+    _record_applications(config, store, sheet, messages)
     handled = 0
 
     for msg in messages:

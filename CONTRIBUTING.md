@@ -11,13 +11,19 @@ prints what it found rather than asserting — the point is that you read the
 output and judge it, because most of the interesting failures here are "this
 scored 22 on a snippet" rather than "this raised an exception".
 
-**Two run with no network and no API key.** Start here, and if your change
-touches filtering or dedup, these are the ones that matter:
+**Three run with no network and no API key.** Start here, and if your change
+touches filtering, dedup or the applied detector, these are the ones that matter:
 
 ```bash
 python dryrun_dedup.py       # normalised title::company dedup — does it over- or under-merge?
 python dryrun_geography.py   # the location rules, in increasing order of surprise
+python dryrun_applied.py     # confirmation emails: does it fire only on real receipts?
 ```
+
+`dryrun_applied.py` is the one to read closely if you touch `applied.py`. Half
+its cases are mail that must NOT match — job alerts from the same senders, a
+posting whose title contains the word "Application" — because the cost of a
+false positive there is a job silently marked applied that never was.
 
 **The other six need something.** They import a source adapter or the LLM layer,
 so they will make real requests:

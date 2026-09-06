@@ -76,6 +76,26 @@ def _run_draft(args, config) -> None:
     print(render(job, result))
 
 
+def _applied_urls(config) -> set[str]:
+    """Everything marked applied, from both places it can be marked.
+
+    The database holds what the boards confirmed; the sheet holds what the user
+    ticked by hand. Neither is a superset of the other, and the sheet may be off
+    entirely, so the union is the only honest answer.
+    """
+    from .store import Store
+
+    urls = Store(config.database_path).applied_urls()
+    if config.google_sheet.enabled:
+        try:
+            from .sheets import SheetWriter
+
+            urls |= SheetWriter(config.google_sheet, config.score_threshold).applied_urls()
+        except Exception as err:
+            print(f"could not read ticks from the sheet ({err}); using the database only")
+    return urls
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jobsift", description="Job-alert email watcher")
     parser.add_argument("--once", action="store_true", help="Run a single pass and exit")
@@ -104,6 +124,16 @@ def main() -> None:
     )
     parser.add_argument("--min-score", type=int, default=0, help="With --export: only rows at or above this score")
     parser.add_argument("--source", default="", help="With --export: only rows whose source matches")
+    parser.add_argument(
+        "--scan-applied",
+        nargs="?",
+        const=90,
+        type=int,
+        metavar="DAYS",
+        help="Read application receipts from the inbox (Indeed, Jobstreet) and tick "
+             "those jobs applied in the sheet. Free — regex over mail already in the "
+             "account, no LLM call and no board scraped. Defaults to 90 days back.",
+    )
     parser.add_argument(
         "--skip-applied",
         action="store_true",
@@ -158,6 +188,38 @@ def main() -> None:
         _run_draft(args, config)
         return
 
+    if args.scan_applied:
+        from .applied import CONFIRMATION_SENDERS, detect, match_to_jobs
+        from .export import rows as stored_rows
+        from .gmail import GmailReader
+
+        gmail = GmailReader(config.gmail_address, config.gmail_app_password)
+        messages = gmail.fetch_confirmations(CONFIRMATION_SENDERS, args.scan_applied)
+        confirmations = [c for c in (detect(m) for m in messages) if c]
+        print(f"read {len(messages)} message(s), {len(confirmations)} confirmation(s)")
+
+        store = Store(config.database_path)
+        records = stored_rows(config.database_path, settings=config.filters)
+        matched, unmatched = match_to_jobs(confirmations, records)
+
+        fresh = [url for url, c in matched.items() if store.mark_applied(url, c)]
+        print(f"matched {len(matched)} job(s) in the database, {len(fresh)} newly marked")
+
+        if config.google_sheet.enabled:
+            from .sheets import SheetWriter
+
+            ticked = SheetWriter(config.google_sheet, config.score_threshold).mark_applied(
+                store.applied_urls())
+            print(f"ticked {ticked} row(s) in the sheet")
+
+        # Named, not just counted. An application the program cannot place is
+        # usually a job it never saw — applied to on the board directly, or
+        # older than the database — and that is worth knowing rather than hiding.
+        for c in unmatched:
+            print(f"  no stored job for: {c.title}"
+                  + (f" @ {c.company}" if c.company else "") + f"  [{c.board}]")
+        return
+
     if args.backfill_sheet:
         from .export import rows as stored_rows
         from .sheets import SheetWriter
@@ -169,9 +231,8 @@ def main() -> None:
                               source=args.source, settings=config.filters)
         if args.only_passing:
             records = [r for r in records if r.get("verdict") == "kept"]
-        if args.skip_applied and config.google_sheet.enabled:
-            from .sheets import SheetWriter as _SW
-            done = _SW(config.google_sheet, config.score_threshold).applied_urls()
+        if args.skip_applied:
+            done = _applied_urls(config)
             before = len(records)
             records = [r for r in records if r.get("url") not in done]
             print(f"skipped {before - len(records)} already applied")
@@ -191,9 +252,8 @@ def main() -> None:
                        source=args.source, settings=config.filters)
         if args.only_passing:
             records = [r for r in records if r.get("verdict") == "kept"]
-        if args.skip_applied and config.google_sheet.enabled:
-            from .sheets import SheetWriter as _SW
-            done = _SW(config.google_sheet, config.score_threshold).applied_urls()
+        if args.skip_applied:
+            done = _applied_urls(config)
             before = len(records)
             records = [r for r in records if r.get("url") not in done]
             print(f"skipped {before - len(records)} already applied")
