@@ -105,6 +105,13 @@ def main() -> None:
     parser.add_argument("--min-score", type=int, default=0, help="With --export: only rows at or above this score")
     parser.add_argument("--source", default="", help="With --export: only rows whose source matches")
     parser.add_argument(
+        "--skip-applied",
+        action="store_true",
+        help="With --export or --backfill-sheet: drop jobs ticked applied in the "
+             "Google Sheet. The tick is yours and the program never writes it, so "
+             "this is the one place the sheet is read back.",
+    )
+    parser.add_argument(
         "--backfill-sheet",
         action="store_true",
         help="Push already-stored jobs to the Google Sheet and exit. The sheet is "
@@ -162,7 +169,18 @@ def main() -> None:
                               source=args.source, settings=config.filters)
         if args.only_passing:
             records = [r for r in records if r.get("verdict") == "kept"]
-        count = SheetWriter(config.google_sheet).append_many(records)
+        if args.skip_applied and config.google_sheet.enabled:
+            from .sheets import SheetWriter as _SW
+            done = _SW(config.google_sheet, config.score_threshold).applied_urls()
+            before = len(records)
+            records = [r for r in records if r.get("url") not in done]
+            print(f"skipped {before - len(records)} already applied")
+        writer = SheetWriter(config.google_sheet, config.score_threshold)
+        # Backfill reads the whole database every time, so it drops what the
+        # sheet already holds rather than writing a second copy of it.
+        seen = writer.existing_urls()
+        records = [r for r in records if r.get("url") not in seen]
+        count = writer.append_many(records)
         print(f"appended {count} stored job(s) to the sheet")
         return
 
@@ -173,6 +191,12 @@ def main() -> None:
                        source=args.source, settings=config.filters)
         if args.only_passing:
             records = [r for r in records if r.get("verdict") == "kept"]
+        if args.skip_applied and config.google_sheet.enabled:
+            from .sheets import SheetWriter as _SW
+            done = _SW(config.google_sheet, config.score_threshold).applied_urls()
+            before = len(records)
+            records = [r for r in records if r.get("url") not in done]
+            print(f"skipped {before - len(records)} already applied")
         count = to_csv(records, args.export, args.short_links)
         print(summarise(records))
         print(f"\nwrote {count} row(s) to {args.export}")
@@ -196,7 +220,7 @@ def main() -> None:
         try:
             from .sheets import SheetWriter
 
-            sheet = SheetWriter(config.google_sheet)
+            sheet = SheetWriter(config.google_sheet, config.score_threshold)
             log.info("Google Sheet output enabled (%s)", config.google_sheet.worksheet)
         except Exception:
             log.exception("Could not init Google Sheet — continuing without it")

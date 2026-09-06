@@ -20,7 +20,10 @@ DEFAULT_MODELS = {
 class GoogleSheetConfig:
     enabled: bool = False
     sheet_id: str = ""
-    worksheet: str = "Jobs"
+    worksheet: str = "Shortlist"
+    # Second tab for jobs the scorer put below score_threshold. Empty turns the
+    # split off and everything lands in `worksheet`.
+    worksheet_below: str = "Below the bar"
     service_account_file: str = "./service-account.json"
 
 
@@ -82,7 +85,8 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
     google_sheet = GoogleSheetConfig(
         enabled=bool(gs.get("enabled", False)),
         sheet_id=str(gs.get("sheet_id", "")),
-        worksheet=str(gs.get("worksheet", "Jobs")),
+        worksheet=str(gs.get("worksheet", "Shortlist")),
+        worksheet_below=str(gs.get("worksheet_below", "Below the bar")),
         service_account_file=str(gs.get("service_account_file", "./service-account.json")),
     )
 

@@ -519,7 +519,11 @@ telegram_enabled: true
 google_sheet:
   enabled: false
   sheet_id: "<YOUR_GOOGLE_SHEET_ID>"
-  worksheet: Jobs
+  # Two tabs, split at score_threshold. Everything scored goes to one or the
+  # other — the low half is where you check whether the bar is set right.
+  # Set worksheet_below to "" to keep a single tab.
+  worksheet: Shortlist
+  worksheet_below: Below the bar
   # Service-account JSON key (Google Cloud → IAM → Service Accounts). Share the
   # target Sheet with the service account's email as an Editor. Keep this file
   # out of git — it's a secret.

@@ -60,12 +60,39 @@ from a phone and you can keep your own columns beside it.
    google_sheet:
      enabled: true
      sheet_id: "1AbC...XyZ"
-     worksheet: Jobs
+     worksheet: Shortlist
+     worksheet_below: Below the bar
      service_account_file: ./service-account.json
    ```
 
-The worksheet is created and given a header row on the first write, so an empty
+Both tabs are created and given a header row on the first write, so an empty
 sheet is fine. A `403` or `PermissionError` on the first run means step 6.
+
+### What you get
+
+Every job that survives the filters is written to one of two tabs, split at
+`score_threshold`: `Shortlist` at or above it, `Below the bar` under it. Nothing
+scored is thrown away, because the rows just under the bar are how you tell
+whether the bar is in the right place. Set `worksheet_below: ""` for a single tab.
+
+Each tab is set up on every run, so there are no menus to find:
+
+| | |
+|---|---|
+| **Column A, `applied`** | A tick box, frozen alongside the header row. It is yours — the program writes `FALSE` on a new row and never touches it again |
+| **`url`** | A narrow `open` link rather than the full address |
+| **Row 1** | Bold, with a filter on it, so any column can be sorted — click the funnel on `score` |
+
+Tick `applied` on a row and pass `--skip-applied` to leave it out of later
+exports and backfills. Both tabs are read, since a job worth applying to is not
+always one the scorer liked.
+
+```bash
+python -m jobsift --backfill-sheet --min-score 0 --only-passing
+```
+
+fills the tabs from jobs already in the database — safe to re-run, as it skips
+every url the sheet already holds.
 
 ## 3. Test it once
 
