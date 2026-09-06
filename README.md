@@ -66,6 +66,14 @@ flood), Google Sheet = full browsable archive of every scored job.
 
 ## Quick start
 
+Needs **Python 3.10+** (the code uses `X | None` type syntax) and an API key
+for one LLM provider — [Anthropic](https://console.anthropic.com) or
+[OpenAI](https://platform.openai.com). **The key costs money to use:** every
+job is read by the model once, and anything past the filters is read again to
+score it. One pass over a day of alerts plus the scrape sources ran ~150 calls.
+Do the first run with `--once --no-telegram` and read the CSV before scheduling
+anything.
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -175,6 +183,12 @@ pauses for your approval before submitting — keep it that way.
 
 `.env`, `config.yaml`, `resume.txt`, `service-account.json`, and `data/` are gitignored.
 Never commit real tokens. If one leaks into git history, rotate it.
+
+## Contributing
+
+There is no test suite; there are eight `dryrun_*.py` scripts, two of which run
+offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for which need a key or network,
+and how to test a source adapter without hitting a live board.
 
 ## License
 
