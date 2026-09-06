@@ -27,6 +27,11 @@ HEADERS = [
     # `applied` - the program only ever reads it, and it costs one model call per
     # tick, which is why nothing ticks it for you.
     "draft",
+    # Written BY the program, unlike the two boxes either side of it. A sheet
+    # cannot call anything - the program polls it - so a tick sits there looking
+    # ignored for up to one poll interval. This column is where the answer goes:
+    # queued, drafting, or a link straight to the finished draft.
+    "draft_status",
     "score", "job_title", "url", "company", "salary", "location", "remote",
     "source", "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
@@ -306,6 +311,42 @@ class SheetWriter:
                 if url:
                     out.add(url)
         return out
+
+    def draft_link(self) -> str:
+        """A formula linking to the Drafts tab, or "" if there is not one yet."""
+        if self.draft_ws is None:
+            try:
+                self.draft_ws = self.spreadsheet.worksheet("Drafts")
+            except Exception:
+                return ""
+        url = f"{self.spreadsheet.url}/edit#gid={self.draft_ws.id}"
+        return f'=HYPERLINK("{url}","see Drafts")'
+
+    def set_draft_status(self, statuses: dict) -> int:
+        """Write {url: text} into the draft_status column. Returns cells written.
+
+        One batch per tab, because this is called three times per drafted row -
+        queued, drafting, done - and a request each would be most of the run.
+        """
+        if not statuses:
+            return 0
+        column = HEADERS.index("draft_status")
+        letter = chr(ord("A") + column)
+        written = 0
+        for ws in self._tabs():
+            updates = [
+                {"range": f"{letter}{row}", "values": [[statuses[url]]]}
+                for url, row in self._url_rows(ws).items()
+                if url in statuses
+            ]
+            if not updates:
+                continue
+            try:
+                ws.batch_update(updates, value_input_option="USER_ENTERED")
+                written += len(updates)
+            except Exception as err:
+                logger.warning("could not write draft status on %s: %s", ws.title, err)
+        return written
 
     def drafts_requested(self) -> set[str]:
         """Urls with the draft box ticked. Each one costs a model call, so the

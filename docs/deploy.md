@@ -140,6 +140,22 @@ python -m jobsift --draft 309 --posting posting.txt
 **From the sheet**, which is the easier one: tick the **`draft`** box on any row.
 The next pass picks it up, drafts, and writes the result to the **Drafts** tab.
 
+Nothing happens the instant you tick. A sheet cannot call the program - the program
+reads the sheet, once a pass - so the **`draft_status`** column beside the box is
+where it answers you:
+
+| `draft_status` | means |
+|---|---|
+| *(empty)* | not seen yet. Wait one poll interval, five minutes by default |
+| `queued` | seen, and waiting behind the per-pass cap |
+| `drafting...` | being written now |
+| **see Drafts** | done - the cell is a link straight to the Drafts tab |
+| `failed: ...` | it broke, with the reason |
+
+That column is written by the program; the `draft` and `applied` boxes are yours.
+Draft requests are served at the *start* of a pass, before the sources are scraped,
+because a scrape can run for several minutes on its own.
+
 Either way you get a requirements table, a cover letter, answers to the employer's
 questions and a tailored resume. `--no-sheet` prints without logging.
 

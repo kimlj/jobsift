@@ -12,6 +12,10 @@ from .llm import build_llm
 from .pipeline import run_once
 from .store import Store
 
+# Module level, because the helpers below run outside main() and main's own
+# `log` is local to it. Same logger either way - getLogger is a lookup.
+log = logging.getLogger("jobsift")
+
 
 def _run_draft(args, config) -> None:
     """Print a reviewable application draft for one stored job. Sends nothing."""
@@ -131,12 +135,19 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
     allow_hosts = (config.filters.get("fetch") or {}).get("allow_hosts")
     done = 0
 
-    for url in sorted(wanted)[:MAX_DRAFTS_PER_PASS]:
+    # Say something before spending a minute on the first one. Everything ticked
+    # is acknowledged now; the ones past the per-pass cap keep saying queued,
+    # which is true, rather than nothing, which reads as broken.
+    batch = sorted(wanted)[:MAX_DRAFTS_PER_PASS]
+    sheet.set_draft_status({url: "queued" for url in sorted(wanted)})
+
+    for url in batch:
         row = conn.execute(
             "SELECT * FROM jobs WHERE url = ? ORDER BY id DESC LIMIT 1", (url,)
         ).fetchone()
         if not row:
             log.info("draft requested for a url with no stored job: %s", url)
+            sheet.set_draft_status({url: "no stored job for this row"})
             continue
         job = json.loads(row["data"])
         job["id"] = row["id"]
@@ -149,6 +160,7 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
 
         log.info("Drafting for %s @ %s (%d chars of posting)",
                  job.get("job_title"), job.get("company"), len(posting))
+        sheet.set_draft_status({url: "drafting..."})
         if posting:
             # Same substitution --posting makes: the full text replaces the stored
             # snippet outright, because it is the same content only complete, and
@@ -159,9 +171,13 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
             if not result:
                 continue
             sheet.append_draft(job, result)
+            sheet.set_draft_status({url: sheet.draft_link() or "done"})
             done += 1
-        except Exception:
+        except Exception as err:
             log.exception("Draft failed for %s", url)
+            # The reason goes in the cell. A row that silently stays "drafting..."
+            # is indistinguishable from one still being worked on.
+            sheet.set_draft_status({url: f"failed: {str(err)[:90]}"})
 
     remaining = len(wanted) - done
     if remaining > 0:
@@ -278,7 +294,7 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    log = logging.getLogger("jobsift")
+    log = logging.getLogger("jobsift")  # the module-level one, by name
 
     config = load_config(args.config, args.env)
 
@@ -400,8 +416,18 @@ def main() -> None:
 
     while True:
         try:
+            # Before the pass rather than after it. A pass spends minutes in
+            # the scrape sources - onlinejobs.ph is paced to its robots.txt
+            # Crawl-delay, about five seconds a page - and a tick sitting behind
+            # all of that is indistinguishable from a tick that did nothing.
+            try:
+                _serve_sheet_drafts(args, config, llm, sheet, resume)
+            except Exception:
+                # The sheet is an optional output. A NameError in here once took
+                # the whole daemon down mid-run; drafting is a convenience and
+                # must never be able to stop the inbox being read.
+                log.exception("Serving sheet draft requests failed; continuing")
             handled = run_once(config, llm, store, gmail, resume, sheet, telegram_send)
-            _serve_sheet_drafts(args, config, llm, sheet, resume)
             log.info("Pass complete — %d new job(s)", handled)
         except Exception:
             log.exception("Run failed")
