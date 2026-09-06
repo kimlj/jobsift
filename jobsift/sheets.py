@@ -85,8 +85,12 @@ class SheetWriter:
                 title=title, rows=1000, cols=len(HEADERS)
             )
 
-        if not ws.get_all_values():
-            ws.append_row(HEADERS, value_input_option="RAW")
+        # Compare row 1 to HEADERS rather than asking whether the sheet is
+        # empty: a freshly created worksheet does not reliably read back as
+        # empty, and a tab that skipped its header silently writes every later
+        # row one column off nothing and looks blank at the top.
+        if ws.row_values(1) != HEADERS:
+            ws.update([HEADERS], "A1", value_input_option="RAW")
 
         self._setup(ws)
         return ws
@@ -215,9 +219,36 @@ class SheetWriter:
                     out.add(url)
         return out
 
+    @staticmethod
+    def _next_row(ws) -> int:
+        """The first row with no job in it, found from the data rather than asked for.
+
+        Not append_row/append_rows. Those ask the API to find the end of the
+        table, and the tick-box validation in _setup makes every cell in column A
+        exist as far as that search is concerned — so it reports the bottom of
+        the *grid*, and rows land at 1001 under a thousand blank ones. The sheet
+        then looks empty and the data is real but unreachable, which is the worst
+        of both. job_title is read instead because every row has one.
+        """
+        col = ws.col_values(HEADERS.index("job_title") + 1)
+        while col and not col[-1].strip():
+            col.pop()
+        return max(len(col), 1) + 1
+
+    def _write(self, ws, rows: list[list[str]]) -> None:
+        """Put rows at an explicit range, growing the grid first if it is short."""
+        if not rows:
+            return
+        start = self._next_row(ws)
+        need = start + len(rows) - 1
+        grid = ws._properties["gridProperties"]["rowCount"]
+        if need > grid:
+            ws.add_rows(need - grid)
+        ws.update(rows, f"A{start}", value_input_option="USER_ENTERED")
+
     def append_many(self, records: list[dict]) -> int:
-        """Append many rows, one call per tab. Backfill sends hundreds, and an
-        append_row each would be hundreds of round trips and a rate limit."""
+        """Append many rows, one call per tab. Backfill sends hundreds, and one
+        write each would be hundreds of round trips and a rate limit."""
         batches: dict[int, tuple] = {}
         for record in records:
             ws = self._target(record)
@@ -226,12 +257,11 @@ class SheetWriter:
 
         total = 0
         for ws, rows in batches.values():
-            ws.append_rows(rows, value_input_option="USER_ENTERED")
+            self._write(ws, rows)
             total += len(rows)
         return total
 
     def append(self, record: dict) -> None:
         # Sheets links a bare url on its own, but shows the whole address; the
         # formula gives the same click behind a narrow "open" cell instead.
-        row = [_cell(h, record) for h in HEADERS]
-        self._target(record).append_row(row, value_input_option="USER_ENTERED")
+        self._write(self._target(record), [[_cell(h, record) for h in HEADERS]])
