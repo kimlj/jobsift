@@ -390,6 +390,13 @@ scrape_sources:
   # Emitted with source "jobstreet_api" rather than "jobstreet", so rows found this
   # way stay distinguishable from the ones the email alerts brought in.
   jobstreet_api:
+    # OFF, and not because it fails - it works. ph.jobstreet.com/robots.txt
+    # carries `Disallow: /api/jobsearch/`, which is exactly the endpoint this
+    # source reads. The site said no in the place a program is meant to look.
+    #
+    # Jobstreet is still worth having: subscribe to their email job alerts and
+    # the postings arrive in your inbox, addressed to you, where the extractor
+    # already reads them. That is the tier this project prefers anyway.
     enabled: false
     max_pages: 2          # pages per keyword, newest first
     page_size: 30         # up to 100 is accepted

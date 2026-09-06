@@ -58,24 +58,6 @@ def enrich_job(
 
     url = (job.get("url") or "").strip()
 
-    # Jobstreet before the skip list, which it is on because its job page is 403
-    # and no HTML fetch will ever work. Its own API answers, and the difference is
-    # not marginal: 4,302 characters against a 182-character teaser. Everything
-    # downstream - the filters that read a degree requirement, the score, the
-    # draft - was working from the teaser and reporting `snippet` while doing it.
-    #
-    # No LLM call: the search result already carried the structured fields, and
-    # what was missing was only the ad itself.
-    from .sources.jobstreet import fetch_details, job_id_from_url
-
-    job_id = job_id_from_url(url)
-    if job_id:
-        advertisement = fetch_details(job_id)
-        if advertisement:
-            job = {**job, "description": advertisement,
-                   "description_summary": advertisement, "full_text": advertisement}
-        return _normalize_no_link(job)
-
     if not url or not url.startswith("http") or any(d in url for d in skip_link_domains):
         return _normalize_no_link(job)
 

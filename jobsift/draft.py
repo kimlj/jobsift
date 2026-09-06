@@ -276,13 +276,6 @@ def fetch_posting(url: str, allow_hosts=None) -> str:
     if not url.startswith("http"):
         return ""
 
-    # Jobstreet first, because its job page is 403 behind Cloudflare and no amount
-    # of fetching HTML will ever get this. Its own API will.
-    from .sources.jobstreet import fetch_details, job_id_from_url
-
-    job_id = job_id_from_url(url)
-    if job_id:
-        return fetch_details(job_id)
     try:
         response = safe_get(
             url,
