@@ -115,17 +115,41 @@ The floor is measured, not chosen. Across the stored jobs: onlinejobs.ph carries
 a median of 3,013 characters and jobicy 7,016, while indeed carries 155,
 jobstreet's search API 182 and linkedin 3. Nothing real sits between those.
 
-**Jobstreet's full ad comes from the GraphQL endpoint its own job page calls.**
-The source file used to state the posting could not be had, on the evidence that
-the job page is 403 and `/api/jobsearch/v5/job/<id>`, `/jobdetails/<id>` and
-`/api/job-details/v1/jobs/<id>` all 404. Every one of those is true and the
-conclusion still did not follow: the job page is a JavaScript app, and the
-request it makes was never tried. 4,302 characters against a 182-character
-teaser.
+**Jobstreet is read through email alerts, not through its API.** Its
+`robots.txt` carries `Disallow: /graphql` and `Disallow: /api/jobsearch/` - the
+endpoint that returns the full advertisement, and the search endpoint the scrape
+source used. Both are off.
+
+That cost a day. The reasoning went: the job page 403s, three REST shapes 404,
+therefore the posting is unavailable - which was then correctly identified as too
+strong, because the page is a JavaScript app whose own GraphQL call had never
+been tried. It answered, anonymously, with 4,302 characters against a
+182-character teaser. What nobody did in either round was open `robots.txt`.
+
+**Reachable is not allowed.** An endpoint answering an anonymous request says
+nothing about permission; the permission is written down, in one file, at a
+fixed path. Check it before deciding an endpoint is available, not after
+deciding it is unavailable.
 
 **Indeed cannot be fixed this way.** No equivalent API, and the way past its
 blocking is a headless browser pretending to be a person. Its rows say
 `title` in `scored_on` and ask for `--posting`.
+
+**A 403 from a datacenter is not always the same thing as a 403.** Deployed to a
+DigitalOcean droplet, onlinejobs.ph, Jobstreet's search and Jobstreet's GraphQL
+all returned 403 for requests a residential connection is served normally. The
+two are not equivalent:
+
+* Jobstreet **disallows those paths in `robots.txt`**. The 403 restates a policy
+  they publish, and routing around it would be evading a decision stated twice.
+* onlinejobs.ph **permits** the job-search pages and specifies `Crawl-delay: 5`,
+  which this program already honours. There the 403 is a blunt anti-bot layer
+  that contradicts the site's own stated policy.
+
+Even in the second case, a residential proxy service is the wrong answer: renting
+somebody else's home IPs to appear to be a home user is impersonation, and it is
+what gets a block widened for everyone. Egressing through *your own* connection
+is defensible; buying a disguise is not.
 
 **`scored_on` is in the sheet because a score and the evidence behind it are read
 together or not at all.** 50 of the first 119 rows at 60+ were scored on a
