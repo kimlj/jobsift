@@ -176,3 +176,7 @@ pauses for your approval before submitting — keep it that way.
 
 `.env`, `config.yaml`, `resume.txt`, `service-account.json`, and `data/` are gitignored.
 Never commit real tokens. If one leaks into git history, rotate it.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
