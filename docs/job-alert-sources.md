@@ -59,8 +59,7 @@ is also why `safefetch` exists: keyword-only matching means *anyone* who can put
 mail in the inbox can hand this program a URL to fetch.
 
 (The wording here used to describe the *Classify email* node of the original n8n
-workflow. That workflow is kept in `reference/` as the design blueprint; the
-running program is the Python package.)
+workflow this replaced. The running program is the Python package.)
 
 Mapped today: `indeed.com`, `jobs-noreply@linkedin.com`, `foundit.com`,
 `jobstreet.com`, `kalibrr.com`, `bossjob.ph`, `remotive.com`, `weworkremotely.com`,

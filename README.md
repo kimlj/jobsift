@@ -124,7 +124,6 @@ jobsift/            the app
     onlinejobs.py       onlinejobs.ph public listing reader
 config.example.yaml     copy to config.yaml
 .env.example            copy to .env
-reference/              the original n8n workflow, kept as the design blueprint
 applier/                (planned) Claude-in-Chrome auto-applier
 ```
 
