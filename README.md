@@ -106,6 +106,7 @@ with the word PURPLE") in the last lines to catch people who skimmed.
 
 Full deployment (systemd / cron on a VPS) → [docs/deploy.md](docs/deploy.md).
 Which boards to subscribe to → [docs/job-alert-sources.md](docs/job-alert-sources.md).
+Why something is built the way it is → [docs/decisions.md](docs/decisions.md).
 
 ## Layout
 

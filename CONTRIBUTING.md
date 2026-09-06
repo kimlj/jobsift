@@ -62,6 +62,12 @@ place.
 
 ## Things worth knowing before you change them
 
+[docs/decisions.md](docs/decisions.md) is the long version: what cost real
+debugging time, and what looks wrong until you know why. Read it before undoing
+something that seems overcomplicated - most of it is there because the obvious
+alternative was tried first.
+
+
 - **Filters run before the expensive steps, on purpose.** `filters.py` runs ahead
   of enrich and score so a job that fails a hard rule is dropped before it costs
   an LLM call. Moving a check later is a cost regression even when it reads
