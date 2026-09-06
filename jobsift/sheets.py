@@ -32,7 +32,14 @@ HEADERS = [
     # ignored for up to one poll interval. This column is where the answer goes:
     # queued, drafting, or a link straight to the finished draft.
     "draft_status",
-    "score", "job_title", "url", "company", "salary", "location", "remote",
+    "score",
+    # How much of the posting the score was computed from, beside the score
+    # itself, because the two are read together or not at all. 48 of the first
+    # 83 rows to reach the shortlist were scored on 182 characters or fewer -
+    # mostly on the title - and in the sheet an 89 from a title looked exactly
+    # like an 89 from three thousand words.
+    "scored_on",
+    "job_title", "url", "company", "salary", "location", "remote",
     "source", "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
     "interest_fit", "matching_skills", "missing_skills", "reasoning", "status",
@@ -56,6 +63,16 @@ def _cell(header: str, record: dict) -> str:
     reads as unticked. `url` gets the narrow clickable form; see utils.hyperlink."""
     if header in ("applied", "draft"):
         return "FALSE"
+    if header == "scored_on":
+        # Composed rather than stored: the record carries the two halves and this
+        # is the one place they are read as a sentence.
+        kind = str(record.get("evidence") or "unknown")
+        count = int(record.get("evidence_chars") or 0)
+        if kind == "full":
+            return f"full, {count:,} chars"
+        if count:
+            return f"SNIPPET, {count:,} chars"
+        return "TITLE ONLY"
     if header == "url":
         return hyperlink(record.get("url", ""))
     return str(record.get(header, ""))
@@ -118,12 +135,27 @@ class SheetWriter:
             # the left of where the new headers say it is. Rewriting row 1 alone
             # would silently relabel every value in it, so make room first.
             added = [h for h in headers if h not in current]
-            if current and len(added) == 1 and [h for h in headers if h != added[0]] == current:
-                index = headers.index(added[0])
-                self.spreadsheet.batch_update({"requests": [{"insertDimension": {
-                    "range": {"sheetId": ws.id, "dimension": "COLUMNS",
-                              "startIndex": index, "endIndex": index + 1},
-                    "inheritFromBefore": False}}]})
+            kept = [h for h in headers if h not in added]
+            if current and added and kept == current:
+                # Ascending order of the FINAL index: each insert shifts what is
+                # to its right, so a later column's index is already correct by
+                # the time its turn comes.
+                self.spreadsheet.batch_update({"requests": [
+                    {"insertDimension": {
+                        "range": {"sheetId": ws.id, "dimension": "COLUMNS",
+                                  "startIndex": headers.index(name),
+                                  "endIndex": headers.index(name) + 1},
+                        "inheritFromBefore": False}}
+                    for name in sorted(added, key=headers.index)
+                ]})
+            elif current and kept != current:
+                # Columns were removed or reordered, not just added. Writing the
+                # new header row over this would relabel every value under it,
+                # and a wrong label on real data is worse than a stale one.
+                logger.warning(
+                    "%s has headers this version cannot migrate (%s); leaving row 1 alone",
+                    ws.title, current)
+                return ws
             ws.update([headers], "A1", value_input_option="RAW")
 
         self._setup(ws, headers, tickbox, clip)
