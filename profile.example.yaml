@@ -23,6 +23,17 @@ education:
 
 experience:
   years_total: 5
+  # Answers "how many years' experience do you have as an X", which is a required
+  # dropdown on Jobstreet and Indeed. A ROLE is not a SKILL: this asks how long the
+  # work was the job, not how long the tool has been in hand, so these are usually
+  # smaller than years_by_skill. Leave a role out rather than estimating it - the
+  # answer then comes back blank and flagged, which is recoverable, and an inflated
+  # year count is what an interviewer opens with.
+  years_by_role:
+    full stack developer: 5
+    backend developer: 4
+    automation engineer: 2
+
   # Used for "how many years of X" dropdowns. Only list what you would defend
   # in an interview.
   years_by_skill:
