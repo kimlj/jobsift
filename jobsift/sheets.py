@@ -8,10 +8,18 @@ logger = logging.getLogger(__name__)
 
 # Column order for the sheet (also the header row).
 HEADERS = [
-    "timestamp", "source", "job_title", "company", "location", "remote", "salary",
-    "skills_required", "job_type", "experience_level", "duration", "url",
-    "description_summary", "score", "skill_match", "experience_fit", "interest_fit",
-    "matching_skills", "missing_skills", "reasoning", "status", "reported_at",
+    # Same leading order as the CSV export: the columns you decide on, first.
+    # Both outputs answer "is this worth opening" and they had drifted apart —
+    # score sat at column N here while the export put it third.
+    #
+    # url is beside company because the sheet is scanned and clicked down. Sheets
+    # auto-links a bare URL under USER_ENTERED, so unlike the CSV this needs no
+    # HYPERLINK formula.
+    "score", "job_title", "url", "company", "salary", "location", "remote",
+    "source", "timestamp", "job_type", "experience_level", "duration",
+    "skills_required", "description_summary", "skill_match", "experience_fit",
+    "interest_fit", "matching_skills", "missing_skills", "reasoning", "status",
+    "reported_at",
 ]
 
 
