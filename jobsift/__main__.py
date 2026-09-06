@@ -122,6 +122,12 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
     if sheet is None:
         return 0
     try:
+        # First, make the status column true again. A pass that was killed
+        # partway, or a tick removed after one, otherwise leaves a status that
+        # nothing will ever correct.
+        fixed = sheet.reconcile_draft_status()
+        if fixed:
+            log.info("Corrected %d stale draft status cell(s)", fixed)
         wanted = sheet.drafts_requested() - sheet.drafted_urls()
     except Exception:
         log.exception("Could not read draft requests from the sheet")

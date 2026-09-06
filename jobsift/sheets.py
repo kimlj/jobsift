@@ -380,6 +380,71 @@ class SheetWriter:
                 logger.warning("could not write draft status on %s: %s", ws.title, err)
         return written
 
+    def reconcile_draft_status(self) -> int:
+        """Make draft_status describe the sheet as it is now. Returns cells fixed.
+
+        Every status was written by whichever pass happened to be running, on the
+        assumption that the write would land and that nothing would change after
+        it. Both assumptions fail: a pass killed between "queued" and the draft
+        leaves a queue that does not exist, and a tick removed after the fact
+        leaves a request nobody made. Three rows were wrong this way, one of them
+        for a draft that had already been written.
+
+        So the column is derived rather than accumulated. Cheap - it reads what it
+        was going to read anyway - and it makes every earlier wrong value
+        self-correcting instead of permanent.
+        """
+        import re
+
+        drafted = self.drafted_urls()
+        link = self.draft_link()
+        draft_col = HEADERS.index("draft")
+        status_col = HEADERS.index("draft_status")
+        url_col = HEADERS.index("url")
+        letter = chr(ord("A") + status_col)
+        # Written by a pass in flight. Anything else in the cell is a message to
+        # the reader (a failure, a request for the posting) and is left alone
+        # unless the request behind it is gone.
+        TRANSIENT = ("queued", "drafting...")
+        fixed = 0
+
+        for ws in self._tabs():
+            try:
+                rows = ws.get_all_values(value_render_option="FORMULA")
+            except Exception as err:
+                logger.warning("could not read %s to reconcile: %s", ws.title, err)
+                continue
+
+            updates = []
+            for number, row in enumerate(rows[1:], start=2):
+                row = list(row) + [""] * (len(HEADERS) - len(row))
+                ticked = str(row[draft_col]).strip().upper() in ("TRUE", "1", "YES")
+                status = str(row[status_col]).strip()
+                match = re.search(r'HYPERLINK\("([^"]+)"', str(row[url_col]))
+                url = match.group(1) if match else str(row[url_col]).strip()
+                if not url:
+                    continue
+
+                if url in drafted:
+                    # Done, whatever the cell currently claims.
+                    wanted = link or "done"
+                elif not ticked and (status in TRANSIENT or status.startswith("failed:")):
+                    # The request was withdrawn. A status for it is noise.
+                    wanted = ""
+                else:
+                    continue
+
+                if status != wanted:
+                    updates.append({"range": f"{letter}{number}", "values": [[wanted]]})
+
+            if updates:
+                try:
+                    ws.batch_update(updates, value_input_option="USER_ENTERED")
+                    fixed += len(updates)
+                except Exception as err:
+                    logger.warning("could not reconcile %s: %s", ws.title, err)
+        return fixed
+
     def drafts_requested(self) -> set[str]:
         """Urls with the draft box ticked. Each one costs a model call, so the
         caller must also subtract drafted_urls() before spending anything."""
