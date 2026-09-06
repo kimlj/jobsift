@@ -102,6 +102,11 @@ candidate fits this posting, and do not pad with enthusiasm.
 - If the posting names a stack the candidate lacks, do not bluff: either omit it or
   name the nearest genuine experience.
 - 150-250 words, plain prose, no markdown, ready to paste into an email or a form.
+- Break it into 3 to 5 paragraphs, one idea each, separated by a BLANK LINE. A
+  letter that arrives as a single block does not get read - the person opening it
+  is scanning, and a wall of text gives them nothing to scan. Lead with whatever
+  answers this posting's first requirement, and let the last paragraph be one
+  sentence saying what the candidate brings.
 - Follow any special_instructions you found (opening word, phrasing) inside the letter.
 - End on your closing sentence. Do NOT write a sign-off, a name, or contact details:
   no "Yours truly", no "Best regards", no email address, no links. Those are appended
