@@ -105,6 +105,15 @@ def main() -> None:
     parser.add_argument("--min-score", type=int, default=0, help="With --export: only rows at or above this score")
     parser.add_argument("--source", default="", help="With --export: only rows whose source matches")
     parser.add_argument(
+        "--short-links",
+        action="store_true",
+        help="With --export: write the url column as a clickable Excel HYPERLINK "
+             "labelled 'open' instead of the raw address. These links run long "
+             "enough that the column crowds out everything else, and a raw URL in "
+             "a CSV is only text to Excel until you edit the cell. Leave it off "
+             "for a file anything other than Excel will read.",
+    )
+    parser.add_argument(
         "--only-passing",
         action="store_true",
         help="With --export: drop rows that today's filters would reject. Filters run "
@@ -141,7 +150,7 @@ def main() -> None:
                        source=args.source, settings=config.filters)
         if args.only_passing:
             records = [r for r in records if r.get("verdict") == "kept"]
-        count = to_csv(records, args.export)
+        count = to_csv(records, args.export, args.short_links)
         print(summarise(records))
         print(f"\nwrote {count} row(s) to {args.export}")
         return
