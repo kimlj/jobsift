@@ -1,7 +1,8 @@
 # TODO
 
-Working state as of 2026-08-28. Deployed at `/opt/jobsift` on the VPS, **not yet
-running continuously** — runs are manual (`--once`) until the systemd unit is installed.
+Working state as of 2026-09-07. **Running continuously** on the VPS
+(`159.223.59.45`) as a systemd unit at `/root/jobsift`, every 300s, since
+2026-09-06. `journalctl -u jobsift -f` to watch it.
 
 ## Waiting on external
 
@@ -61,10 +62,57 @@ running continuously** — runs are manual (`--once`) until the systemd unit is 
 
 ## Deployment
 
-- [ ] systemd unit from `docs/deploy.md` not installed yet.
-- [ ] VPS `config.yaml` has `first_run_lookback_days: 2` (smoke-test value); repo default
-      is 7. The DB is no longer fresh, so the backfill will not re-trigger — wipe
-      `data/jobs.db` first if a clean full backfill is wanted when going live.
+- [x] **systemd unit installed and running, 2026-09-06.** At `/root/jobsift`, not
+      `/opt`. `MemoryMax=220M` / `MemorySwapMax=256M` are deliberate: the same
+      droplet runs the MDS Pro payroll API, SendIt and three containers on 1GB,
+      and if anything ever runs away jobsift should be what the kernel kills
+      rather than letting it choose. Steady peak is 85M, so the cap is not tight.
+      `ProtectHome=read-only` means `data/` and `logs/` must stay in
+      `ReadWritePaths` or the database cannot be written.
+- [x] The local database was moved across rather than starting fresh, so the
+      first pass did not treat the whole inbox as new. 366 jobs, 1,575 dedup
+      keys, 202 processed uids, 1 applied confirmation.
+
+- [ ] **Get onlinejobs.ph flowing again from the VPS — the best source, currently
+      off there.** It is 108 of 366 stored jobs, every `evidence: full` row that
+      is not a remote feed, and every score of 90+. The droplet gets a Cloudflare
+      403 on it; a residential connection running the identical code and
+      User-Agent is served normally, so it is the datacenter IP and nothing else.
+
+      **This one is worth doing, and it is not the same question as Jobstreet.**
+      onlinejobs.ph's `robots.txt` allows the job-search pages and asks for
+      `Crawl-delay: 5`, which `sources/onlinejobs.py` already honours. Jobstreet
+      *disallows* the paths it was being read through, which is why that source is
+      off for good. Here the 403 contradicts the site's own published policy
+      rather than restating it.
+
+      The honest fix is to egress through **your own** home connection: a
+      Tailscale exit node on the home machine, with only onlinejobs.ph routed
+      through it. Your traffic, your address, doing what the site permits at the
+      pace it asks for.
+
+      What NOT to do: a residential proxy service. Renting somebody else's home
+      IPs to look like a home user is impersonation, and it is what gets a block
+      widened for everyone.
+
+      Cost of the honest fix: the home machine has to be on. If that is
+      unacceptable, the fallback is to run onlinejobs.ph at home occasionally and
+      leave the VPS on the email half — but **never both at once**, because the
+      dedup state is SQLite on one machine and two copies will double-score and
+      double-alert.
+
+- [ ] **Back up `data/jobs.db` off the droplet.** It now holds the only record of
+      which jobs have been seen, which emails are processed, and which
+      applications the boards have confirmed. Losing it re-alerts everything and
+      loses the applied history. Nothing backs it up today.
+
+- [x] ~~VPS `config.yaml` has `first_run_lookback_days: 2`~~ — moot; the database
+      moved across populated, so no backfill was triggered.
+
+- [ ] The VPS `config.yaml` deliberately DIFFERS from the local one: `jobstreet_api`
+      and `onlinejobs_ph` are both `enabled: false` there. Backed up as
+      `config.yaml.bak`. Keep them in sync by hand when editing filters, or the
+      two hosts will disagree about what gets dropped.
 
 ## Filtering & alerts (done 2026-08-28)
 

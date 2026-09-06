@@ -206,6 +206,13 @@ What the tick costs and what stops it running away:
 | Repeats | A url already in the Drafts tab is never drafted again. **The tick is never cleared** — that column is yours, and the program only reads it |
 | Posting text | The stored page text first; the live page if that is thin; the summary only as a last resort, and the draft says so when it had to |
 
+**Most email-sourced rows will not have enough posting text**, and no amount of
+waiting changes that: the boards that send alert emails are the same ones on
+`skip_link_domains`, so their pages are never fetched. What drafts well is the
+remote JSON feeds (whole posting inline) and onlinejobs.ph (its scraper reads the
+page). For anything else, `--draft <id> --posting FILE` is the method rather than
+the fallback — open the posting, save it, pass it in.
+
 The Drafts tab is created the first time you draft something, never before. Its rows
 are clipped to one line each, since a cover letter and a resume in one row make it
 about 950px tall. Click a cell to read or copy the whole thing.

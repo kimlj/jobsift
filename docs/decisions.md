@@ -131,6 +131,20 @@ nothing about permission; the permission is written down, in one file, at a
 fixed path. Check it before deciding an endpoint is available, not after
 deciding it is unavailable.
 
+**Storing the fetched page text does not fix most rows, and a commit here once
+implied it would.** `enrich` was keeping the page it had already fetched, which
+was described as making drafts "better automatically" as new jobs arrived. It
+does not, because `enrich` returns early through `_normalize_no_link` for
+anything in `skip_link_domains`, and the boards that matter are all on it.
+
+What actually reaches `evidence: full` is the remote JSON feeds, which carry the
+whole posting inline and need no fetch at all, and onlinejobs.ph, whose own
+scraper reads the page — the reason it is on the skip list. Everything arriving
+by email stays at `snippet` or `title`, and no future run changes that.
+
+So for a job worth applying to on those boards, `--draft <id> --posting FILE` is
+not a fallback. It is the method.
+
 **Indeed cannot be fixed this way.** No equivalent API, and the way past its
 blocking is a headless browser pretending to be a person. Its rows say
 `title` in `scored_on` and ask for `--posting`.
