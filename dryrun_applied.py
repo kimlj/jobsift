@@ -36,6 +36,24 @@ CASES = [
         ("Full Stack Developer", "KPMG R.G. Manabat & Co"),
     ),
     (
+        # The shape that broke it in production. The sentence is followed by the
+        # tracking placeholder and a URL, not by the prose the terminator list
+        # was built from, and the same sentence appears again further down. With
+        # an uncapped title the regex backtracked across the whole message and
+        # returned a 900-character "title".
+        "noreply@e.jobstreet.com",
+        "Your application was successfully submitted",
+        "Hi Kim, your application for L3 AI Automation Engineer | Claude Code, Vibe Coding "
+        "& Workflow Automation was successfully submitted to E-team Workforce Private "
+        "Corporation\n%%str_to_replace_open_tracking%%\n\njobstreet\n"
+        "[https://url.jobstreet.com/ss/c/u001.3Q7llEJ8xPfGy0bi906eacCWTdmPtDK3g]\n\n"
+        "Hi Kim,\nYour application for L3 AI Automation Engineer | Claude Code, Vibe Coding "
+        "& Workflow Automation was successfully submitted to E-team Workforce Private "
+        "Corporation.\nEach employer's recruitment process is different.",
+        ("L3 AI Automation Engineer | Claude Code, Vibe Coding & Workflow Automation",
+         "E-team Workforce Private Corporation"),
+    ),
+    (
         # A title carrying the board's own decoration, wrapped mid-subject.
         "noreply@e.jobstreet.com",
         "KMC Solutions has viewed your application for Sr. Full Stack Engineer | 1x a Week Onsite",

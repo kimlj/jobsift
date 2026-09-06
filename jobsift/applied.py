@@ -75,13 +75,24 @@ _RULES: list[tuple[str, str, str, re.Pattern, bool]] = [
         # further down, and those are other people's openings, not applications.
         # The company runs to the end of the sentence, and cannot be terminated
         # at the first full stop: "KPMG R.G. Manabat & Co.." holds three, and
-        # stopping at one yields "KPMG R". It ends where the template's next
-        # sentence begins instead. If Jobstreet rewrites that sentence the rule
-        # stops matching rather than starts matching wrongly, which is the right
-        # way round for the one column the program fills in on the user's behalf.
+        # stopping at one yields "KPMG R". It ends at whatever comes next
+        # instead. If Jobstreet rewrites all of those the rule stops matching
+        # rather than starts matching wrongly, which is the right way round for
+        # the one column the program fills in on the user's behalf.
+        #
+        # Both groups are LENGTH-CAPPED, and that is load-bearing rather than
+        # tidiness. With an open `.+?` on the title, a body whose sentence is
+        # followed by none of the terminators backtracks: the title grows across
+        # the whole email until a LATER "was successfully submitted to" lets the
+        # company reach the end. A real receipt did exactly that and produced a
+        # 900-character title. A cap makes that failure a non-match instead.
+        #
+        # %% and http:// are terminators because the live template puts
+        # "%%str_to_replace_open_tracking%%" and a tracking URL immediately after
+        # the sentence, before the prose the earlier version anchored on.
         re.compile(
-            r"your application for\s+(?P<title>.+?)\s+was successfully submitted\s+to\s+"
-            r"(?P<company>.{1,120}?)\s*(?=Each employer|Keep track|$)",
+            r"your application for\s+(?P<title>.{1,150}?)\s+was successfully submitted\s+to\s+"
+            r"(?P<company>.{1,120}?)\s*(?=Each employer|Keep track|%%|https?://|$)",
             re.I,
         ),
         True,
