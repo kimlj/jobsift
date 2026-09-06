@@ -19,6 +19,8 @@ BOM correctly, so it costs nothing elsewhere.
 from __future__ import annotations
 
 import csv
+
+from .utils import hyperlink
 import json
 import logging
 import sqlite3
@@ -156,24 +158,6 @@ def to_csv(records: list[dict], out_path: str, short_links: bool = False) -> int
         )
 
 
-def _excel_link(url: str) -> str:
-    """A narrow, clickable cell instead of a 95-character URL.
-
-    These links run long — an onlinejobs.ph slug repeats the whole job title —
-    and a column wide enough to read one pushes everything else off the screen,
-    on a sheet whose entire purpose is to be scanned and clicked down.
-
-    The label is fixed rather than the job title: a cell beginning with `=` is a
-    formula, so anything interpolated into it is executed by Excel. The URL still
-    has to go in, so its quotes are doubled (Excel's own escape) and anything not
-    plainly http(s) is written as inert text instead.
-    """
-    url = (url or "").strip()
-    if not url.lower().startswith(("http://", "https://")):
-        return url
-    return '=HYPERLINK("' + url.replace('"', '""') + '","open")'
-
-
 def _write(records: list[dict], names: list[str], out_path: str, short_links: bool = False) -> int:
     # utf-8-sig writes the BOM Excel needs; see the module docstring.
     with open(out_path, "w", encoding="utf-8-sig", newline="") as fh:
@@ -184,7 +168,7 @@ def _write(records: list[dict], names: list[str], out_path: str, short_links: bo
                 # Newlines inside a quoted CSV field are legal and Excel handles
                 # them, but they turn one job into an unreadable tall row. The
                 # reasoning and description fields are the ones that carry them.
-                _excel_link(record.get("url", "")) if (name == "url" and short_links)
+                hyperlink(record.get("url", "")) if (name == "url" and short_links)
                 else " ".join(str(record.get(name, "") or "").split())
                 for name in names
             ])

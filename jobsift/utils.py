@@ -232,3 +232,26 @@ def parse_json_object(content: str) -> dict:
             except json.JSONDecodeError:
                 return {}
         return {}
+
+def hyperlink(url: str, label: str = "open") -> str:
+    """A narrow clickable cell for Excel or Sheets, instead of a long address.
+
+    These links run long - an onlinejobs.ph slug repeats the whole job title, and
+    Indeed's cts.indeed.com redirects encode the destination in the path, so some
+    exceed a thousand characters. A column wide enough to read one pushes
+    everything else off screen, on surfaces whose whole purpose is to be scanned
+    and clicked down.
+
+    The label is fixed, not the job title. A cell beginning with `=` is a formula
+    and both applications execute what is in it, and these titles arrive from the
+    open internet. The url still has to be interpolated, so its quotes are doubled
+    (the escape both use) and anything not plainly http(s) is returned as inert
+    text instead.
+
+    Shared by the CSV export and the Sheets writer so the two cannot drift, which
+    they already did once over column order.
+    """
+    url = (url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return url
+    return '=HYPERLINK("' + url.replace('"', '""') + '","' + label + '")'

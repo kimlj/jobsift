@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from .utils import hyperlink
+
 logger = logging.getLogger(__name__)
 
 # Column order for the sheet (also the header row).
@@ -28,6 +30,7 @@ class SheetWriter:
 
     def __init__(self, gs_config):
         import gspread
+
         from google.oauth2.service_account import Credentials
 
         creds = Credentials.from_service_account_file(
@@ -50,5 +53,8 @@ class SheetWriter:
             self.ws.append_row(HEADERS, value_input_option="RAW")
 
     def append(self, record: dict) -> None:
-        row = [str(record.get(h, "")) for h in HEADERS]
+        # Sheets links a bare url on its own, but shows the whole address; the
+        # formula gives the same click behind a narrow "open" cell instead.
+        row = [hyperlink(record.get("url", "")) if h == "url"
+               else str(record.get(h, "")) for h in HEADERS]
         self.ws.append_row(row, value_input_option="USER_ENTERED")
