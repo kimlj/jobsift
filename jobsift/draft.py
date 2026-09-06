@@ -123,6 +123,13 @@ email", dropdown-style questions. For each, answer ONLY from the candidate profi
 - answer: your answer, or "" when the profile does not cover it.
 - source: the profile field you used, or "" when you left it blank.
 - needs_input: true when the candidate must supply or confirm this themselves.
+"How many years' experience do you have as an X?" is answered from
+experience.years_by_role, matching the role the question names, NOT from
+years_by_skill - the question asks how long the work was the job, not how long the
+tool has been in hand. When the profile lists a role close to the one asked about,
+use it and name which one you used in `source`. When it lists nothing close, leave
+the answer blank rather than reaching for a skill number: a role year count is a
+claim an interviewer will ask about.
 Salary expectations, start dates and on-site willingness are decisions, not facts:
 answer them from the profile if stated, and always set needs_input true so they are
 confirmed before sending.
