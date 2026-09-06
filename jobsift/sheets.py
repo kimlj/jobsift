@@ -17,12 +17,28 @@ HEADERS = [
     # url is beside company because the sheet is scanned and clicked down. Sheets
     # auto-links a bare URL under USER_ENTERED, so unlike the CSV this needs no
     # HYPERLINK formula.
+    # "applied" is yours, not the program's. It is written FALSE on every new row
+    # and never read back, so it can be turned into a tickbox column and frozen at
+    # column A. It exists because append_row writes from column A outward: a
+    # checkbox you added there yourself would be overwritten by the next row.
+    "applied",
     "score", "job_title", "url", "company", "salary", "location", "remote",
     "source", "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
     "interest_fit", "matching_skills", "missing_skills", "reasoning", "status",
     "reported_at",
 ]
+
+
+def _cell(header: str, record: dict) -> str:
+    """One cell. `applied` is the user's tickbox, so it goes out as FALSE rather
+    than empty — an empty cell under tickbox validation reads as blank, a FALSE
+    reads as unticked. `url` gets the narrow clickable form; see utils.hyperlink."""
+    if header == "applied":
+        return "FALSE"
+    if header == "url":
+        return hyperlink(record.get("url", ""))
+    return str(record.get(header, ""))
 
 
 class SheetWriter:
@@ -52,9 +68,16 @@ class SheetWriter:
         if not self.ws.get_all_values():
             self.ws.append_row(HEADERS, value_input_option="RAW")
 
+    def append_many(self, records: list[dict]) -> int:
+        """Append many rows in one call. Backfill sends hundreds, and one
+        append_row each would be hundreds of API round trips and a rate limit."""
+        rows = [[_cell(h, r) for h in HEADERS] for r in records]
+        if rows:
+            self.ws.append_rows(rows, value_input_option="USER_ENTERED")
+        return len(rows)
+
     def append(self, record: dict) -> None:
         # Sheets links a bare url on its own, but shows the whole address; the
         # formula gives the same click behind a narrow "open" cell instead.
-        row = [hyperlink(record.get("url", "")) if h == "url"
-               else str(record.get(h, "")) for h in HEADERS]
+        row = [_cell(h, record) for h in HEADERS]
         self.ws.append_row(row, value_input_option="USER_ENTERED")

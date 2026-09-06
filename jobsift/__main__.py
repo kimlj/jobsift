@@ -105,6 +105,14 @@ def main() -> None:
     parser.add_argument("--min-score", type=int, default=0, help="With --export: only rows at or above this score")
     parser.add_argument("--source", default="", help="With --export: only rows whose source matches")
     parser.add_argument(
+        "--backfill-sheet",
+        action="store_true",
+        help="Push already-stored jobs to the Google Sheet and exit. The sheet is "
+             "only written as jobs are found, so a sheet enabled later starts empty "
+             "while the database already holds everything. Honours --min-score, "
+             "--source and --only-passing, so you can send just the shortlist.",
+    )
+    parser.add_argument(
         "--short-links",
         action="store_true",
         help="With --export: write the url column as a clickable Excel HYPERLINK "
@@ -141,6 +149,21 @@ def main() -> None:
 
     if args.draft:
         _run_draft(args, config)
+        return
+
+    if args.backfill_sheet:
+        from .export import rows as stored_rows
+        from .sheets import SheetWriter
+        if not config.google_sheet.enabled:
+            raise SystemExit("google_sheet.enabled is false in config - nothing to write to.")
+        # settings= is what computes `verdict`; without it every row comes back
+        # with an empty one and --only-passing silently drops everything.
+        records = stored_rows(config.database_path, min_score=args.min_score,
+                              source=args.source, settings=config.filters)
+        if args.only_passing:
+            records = [r for r in records if r.get("verdict") == "kept"]
+        count = SheetWriter(config.google_sheet).append_many(records)
+        print(f"appended {count} stored job(s) to the sheet")
         return
 
     if args.export:
