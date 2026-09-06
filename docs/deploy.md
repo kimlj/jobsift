@@ -306,6 +306,44 @@ scp .env config.yaml resume.txt profile.yaml service-account.json YOU@vps:~/jobs
 ssh YOU@vps 'chmod 600 ~/jobsift/{.env,service-account.json,profile.yaml}'
 ```
 
+### The scrape sources may not work from a datacenter
+
+**Check this before assuming a quiet VPS is broken.** Some boards answer a
+datacenter IP with a Cloudflare 403 while serving the identical request from a
+home connection. Measured from a DigitalOcean droplet, same code and same
+User-Agent as a working local run:
+
+| | from a VPS |
+|---|---|
+| `onlinejobs.ph` | **403** |
+| `jobstreet` search and GraphQL | **403** |
+| `remotive`, `jobicy`, `workingnomads` | 200 |
+| Anthropic / OpenAI, Google Sheets, the FX endpoint | fine |
+
+**The email half is unaffected**, and that is most of jobsift: alerts arrive over
+IMAP from your own mailbox, not fetched from the board. Scoring, the sheet,
+Telegram, drafting from an emailed posting and the applied-receipt scan all work
+exactly as they do locally.
+
+If a source is blocked on your host, **turn it off there** rather than leaving it
+on. Requesting a page every five minutes from a site that has answered 403 is
+pointless and rude, and it is the kind of traffic that gets a block widened:
+
+```yaml
+scrape_sources:
+  onlinejobs_ph:
+    enabled: false     # per-host: 403 from this address, fine from home
+```
+
+Do not work around it by pretending to be a browser. The block is the site's
+answer, and this program's whole approach is to use what boards publish - a JSON
+feed, an alert email, a documented endpoint - rather than to look like something
+it is not.
+
+The honest options are: run the scrape sources on a machine with a residential
+connection and the email sources anywhere; run everything at home; or accept the
+feeds that do answer. **Do not run two copies against one database** - see below.
+
 ### Do not run two copies
 
 The dedup state is in SQLite on one machine, so a laptop and a VPS running at
