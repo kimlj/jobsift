@@ -101,7 +101,12 @@ candidate fits this posting, and do not pad with enthusiasm.
 - Do not invent metrics. Use a number only if the resume states it.
 - If the posting names a stack the candidate lacks, do not bluff: either omit it or
   name the nearest genuine experience.
-- 150-250 words, plain prose, no markdown, ready to paste into an email or a form.
+- 150-220 words. Count them. Overshooting this is the most common fault in a
+  letter: the reader has the resume open beside it, so anything the resume
+  already says is spending their attention to tell them something they have.
+  Keep what the resume cannot carry - a decision, a judgment, where the
+  responsibility sat - and cut every list of technologies.
+- Plain prose, no markdown, ready to paste into an email or a form.
 - Break it into 3 to 5 paragraphs, one idea each, separated by a BLANK LINE. A
   letter that arrives as a single block does not get read - the person opening it
   is scanning, and a wall of text gives them nothing to scan. Lead with whatever
