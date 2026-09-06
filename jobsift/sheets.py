@@ -30,6 +30,16 @@ HEADERS = [
 ]
 
 
+# The drafts log. A separate tab rather than more columns on the job row: a cover
+# letter is a page of prose, and a row carrying one cannot be scanned past. Keyed by
+# url like everything else, and appended rather than replaced, so re-drafting a job
+# leaves the earlier attempt to compare against.
+DRAFT_HEADERS = [
+    "drafted_at", "score", "job_title", "company", "url", "apply_via",
+    "salary_answer", "gaps", "cover_letter", "tailored_resume", "questions",
+]
+
+
 def _cell(header: str, record: dict) -> str:
     """One cell. `applied` is the user's tickbox, so it goes out as FALSE rather
     than empty — an empty cell under tickbox validation reads as blank, a FALSE
@@ -73,26 +83,28 @@ class SheetWriter:
         # the one tab, which is what every sheet made before the split had.
         below = getattr(gs_config, "worksheet_below", "")
         self.ws_below = self._tab(below) if below else None
+        self.draft_ws = None
 
-    def _tab(self, title: str):
+    def _tab(self, title: str, headers: list | None = None, tickbox: bool = True):
         """Fetch or create one tab, header it, and make it usable."""
         import gspread
 
+        headers = headers or HEADERS
         try:
             ws = self.spreadsheet.worksheet(title)
         except gspread.WorksheetNotFound:
             ws = self.spreadsheet.add_worksheet(
-                title=title, rows=1000, cols=len(HEADERS)
+                title=title, rows=1000, cols=len(headers)
             )
 
         # Compare row 1 to HEADERS rather than asking whether the sheet is
         # empty: a freshly created worksheet does not reliably read back as
         # empty, and a tab that skipped its header silently writes every later
         # row one column off nothing and looks blank at the top.
-        if ws.row_values(1) != HEADERS:
-            ws.update([HEADERS], "A1", value_input_option="RAW")
+        if ws.row_values(1) != headers:
+            ws.update([headers], "A1", value_input_option="RAW")
 
-        self._setup(ws)
+        self._setup(ws, headers, tickbox)
         return ws
 
     def _target(self, record: dict):
@@ -107,7 +119,7 @@ class SheetWriter:
             return self.ws
         return self.ws if score >= self.threshold else self.ws_below
 
-    def _setup(self, ws) -> None:
+    def _setup(self, ws, headers: list | None = None, tickbox: bool = True) -> None:
         """Make a tab usable without anyone opening a menu.
 
         Tick boxes on the applied column, a frozen header row and applied
@@ -118,19 +130,22 @@ class SheetWriter:
         Validation runs to row 5000 rather than the current last row, so rows
         appended by later runs land inside it and get a tick box too.
         """
-        applied_col = HEADERS.index("applied")
-        url_col = HEADERS.index("url")
-        requests = [
-            {"setDataValidation": {
+        headers = headers or HEADERS
+        url_col = headers.index("url")
+        requests = []
+        if tickbox:
+            applied_col = headers.index("applied")
+            requests.append({"setDataValidation": {
                 "range": {"sheetId": ws.id, "startRowIndex": 1,
                           "endRowIndex": 5000,
                           "startColumnIndex": applied_col,
                           "endColumnIndex": applied_col + 1},
-                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}},
+                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
+        requests += [
             {"updateSheetProperties": {
                 "properties": {"sheetId": ws.id,
                                "gridProperties": {"frozenRowCount": 1,
-                                                  "frozenColumnCount": 1}},
+                                                  "frozenColumnCount": 1 if tickbox else 0}},
                 "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}},
             {"repeatCell": {
                 "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
@@ -153,7 +168,7 @@ class SheetWriter:
             self.spreadsheet.batch_update({"requests": [{"setBasicFilter": {
                 "filter": {"range": {"sheetId": ws.id,
                                      "startColumnIndex": 0,
-                                     "endColumnIndex": len(HEADERS)}}}}]})
+                                     "endColumnIndex": len(headers)}}}}]})
         except Exception:
             pass
 
@@ -264,7 +279,7 @@ class SheetWriter:
         return out
 
     @staticmethod
-    def _next_row(ws) -> int:
+    def _next_row(ws, headers: list | None = None) -> int:
         """The first row with no job in it, found from the data rather than asked for.
 
         Not append_row/append_rows. Those ask the API to find the end of the
@@ -274,21 +289,63 @@ class SheetWriter:
         then looks empty and the data is real but unreachable, which is the worst
         of both. job_title is read instead because every row has one.
         """
-        col = ws.col_values(HEADERS.index("job_title") + 1)
+        headers = headers or HEADERS
+        col = ws.col_values(headers.index("job_title") + 1)
         while col and not col[-1].strip():
             col.pop()
         return max(len(col), 1) + 1
 
-    def _write(self, ws, rows: list[list[str]]) -> None:
+    def _write(self, ws, rows: list[list[str]], headers: list | None = None) -> None:
         """Put rows at an explicit range, growing the grid first if it is short."""
         if not rows:
             return
-        start = self._next_row(ws)
+        start = self._next_row(ws, headers)
         need = start + len(rows) - 1
         grid = ws._properties["gridProperties"]["rowCount"]
         if need > grid:
             ws.add_rows(need - grid)
         ws.update(rows, f"A{start}", value_input_option="USER_ENTERED")
+
+    def append_draft(self, job: dict, result: dict) -> str:
+        """Log one drafted application. Returns the tab name written to.
+
+        Created lazily: a sheet belonging to someone who has never run --draft
+        should not carry an empty tab explaining that they have not.
+        """
+        from datetime import datetime
+
+        if self.draft_ws is None:
+            self.draft_ws = self._tab("Drafts", DRAFT_HEADERS, tickbox=False)
+
+        requirements = result.get("requirements") or []
+        gaps = [r.get("requirement", "") for r in requirements
+                if (r.get("verdict") or "").lower() == "gap"]
+        salary = ""
+        questions = []
+        for question in result.get("questions") or []:
+            text = (question.get("question") or "").strip()
+            answer = (question.get("answer") or "").strip() or "[BLANK - answer this yourself]"
+            questions.append(f"Q: {text}\nA: {answer}")
+            if "salary" in text.lower() and not salary:
+                salary = answer
+
+        row = {
+            "drafted_at": datetime.now().isoformat(timespec="seconds"),
+            "score": job.get("score", ""),
+            "job_title": job.get("job_title") or job.get("title") or "",
+            "company": job.get("company") or "",
+            "url": hyperlink(job.get("url") or ""),
+            "apply_via": result.get("apply_method") or "",
+            "salary_answer": salary,
+            # Numbered so the count is visible without reading them.
+            "gaps": "\n".join(f"{i}. {g}" for i, g in enumerate(gaps, 1)),
+            "cover_letter": result.get("cover_letter") or "",
+            "tailored_resume": result.get("tailored_resume") or "",
+            "questions": "\n\n".join(questions),
+        }
+        self._write(self.draft_ws, [[str(row.get(h, "")) for h in DRAFT_HEADERS]],
+                    DRAFT_HEADERS)
+        return self.draft_ws.title
 
     def append_many(self, records: list[dict]) -> int:
         """Append many rows, one call per tab. Backfill sends hundreds, and one

@@ -75,6 +75,19 @@ def _run_draft(args, config) -> None:
         raise SystemExit("The model returned nothing usable.")
     print(render(job, result))
 
+    # The terminal is where a draft is read; the sheet is where it is kept. A
+    # scrollback buffer is not somewhere to leave a cover letter you paid for.
+    if config.google_sheet.enabled and not args.no_sheet:
+        try:
+            from .sheets import SheetWriter
+
+            tab = SheetWriter(config.google_sheet, config.score_threshold).append_draft(
+                job, result)
+            print(f"\nSaved to the {tab!r} tab of your sheet.")
+        except Exception as err:
+            # Never lose a draft to a sheet problem: it is already printed above.
+            print(f"\nCould not write to the sheet ({err}). The draft above is unaffected.")
+
 
 def _applied_urls(config) -> set[str]:
     """Everything marked applied, from both places it can be marked.
@@ -106,6 +119,11 @@ def main() -> None:
              "Prints a cover letter and proposed answers for review; sends nothing.",
     )
     parser.add_argument("--profile", default="profile.yaml", help="Path to profile.yaml")
+    parser.add_argument(
+        "--no-sheet",
+        action="store_true",
+        help="With --draft: print the draft but do not log it to the Drafts tab.",
+    )
     parser.add_argument(
         "--posting",
         metavar="FILE",

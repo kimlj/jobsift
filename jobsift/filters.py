@@ -214,6 +214,7 @@ def normalize_salary_php(
     usd_to_php: float | None = None,
     default_currency: str = "PHP",
     currency_rates: dict | None = None,
+    end: str = "low",
 ) -> float | None:
     """Best-effort monthly-PHP figure for a listing's salary string.
 
@@ -221,6 +222,14 @@ def normalize_salary_php(
     pay 18,000, so that is what a minimum-salary rule has to judge. Returns None
     when the string carries no usable number, which callers treat as "unknown"
     rather than "zero".
+
+    `end` picks which figure to read out, and only a caller with a different
+    question should change it. A filter asks "could this pay too little", which is
+    the low end. Answering "what should I ask for" is the opposite question, and
+    the low end is the wrong answer to it — hence "high" and "mid". Every other
+    step of the normalisation (currency, period, hourly conversion, the annual and
+    sanity checks) is identical, which is the reason this is a parameter rather
+    than a second function that would drift from this one.
     """
     if not salary:
         return None
@@ -286,7 +295,12 @@ def normalize_salary_php(
             period = hours if key in ("hour", "hr") else mult
             break
 
-    amount = min(nums)
+    if end == "high":
+        amount = max(nums)
+    elif end == "mid":
+        amount = (min(nums) + max(nums)) / 2.0
+    else:
+        amount = min(nums)
     if period is None:
         # Nothing stated: assume monthly, then reconsider if that is not a wage
         # anyone is paid. See ANNUAL_IF_MONTHLY_EXCEEDS.

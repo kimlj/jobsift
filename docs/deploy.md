@@ -123,6 +123,26 @@ applied to, which is worse than no tick at all.
 `--skip-applied` reads both the database and your own ticks, so it works whether
 the mark came from a receipt or from you.
 
+### Drafts land in the sheet too
+
+```bash
+python -m jobsift --draft 309 --posting posting.txt
+```
+
+prints a requirements table, a cover letter, answers to the employer's questions and
+a tailored resume, then logs all of it to a **Drafts** tab. That tab is created the
+first time you draft something, never before. `--no-sheet` prints without logging.
+
+The resume is plain text in a cell, to be copied into whatever you actually send. It
+is not a generated document on purpose: a cell holds 50,000 characters, the text is
+editable in place, and producing a .docx would buy formatting you are going to
+replace anyway.
+
+Where the posting advertises a salary band whose midpoint beats your stated
+expectation, the salary answer is that midpoint rather than your `profile.yaml`
+figure. That figure is what you would accept from an unknown employer; one who has
+published a band has already told you their budget.
+
 ## 3. Test it once
 
 ```bash
