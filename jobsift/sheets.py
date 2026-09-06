@@ -39,8 +39,12 @@ HEADERS = [
     # mostly on the title - and in the sheet an 89 from a title looked exactly
     # like an 89 from three thousand words.
     "scored_on",
-    "job_title", "url", "company", "salary", "location", "remote",
-    "source", "timestamp", "job_type", "experience_level", "duration",
+    # source sits between the link and the employer because it is read as part
+    # of the link: which board this came from decides how much to trust the row
+    # beside it, and the scored_on column two places left says the same thing in
+    # numbers. onlinejobs.ph rows carry the whole ad; indeed rows carry a title.
+    "job_title", "url", "source", "company", "salary", "location", "remote",
+    "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
     "interest_fit", "matching_skills", "missing_skills", "reasoning", "status",
     "reported_at",
@@ -69,10 +73,11 @@ def _cell(header: str, record: dict) -> str:
         kind = str(record.get("evidence") or "unknown")
         count = int(record.get("evidence_chars") or 0)
         if kind == "full":
-            return f"full, {count:,} chars"
-        if count:
-            return f"SNIPPET, {count:,} chars"
-        return "TITLE ONLY"
+            return "full"
+        # The exact count is in the CSV as evidence_chars. Here it was noise:
+        # the column is scanned down a list to sort the trustworthy rows from
+        # the rest, and 182 against 155 is not a distinction anyone acts on.
+        return "snippet only" if count else "title"
     if header == "url":
         return hyperlink(record.get("url", ""))
     return str(record.get(header, ""))
