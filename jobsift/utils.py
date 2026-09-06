@@ -242,11 +242,16 @@ def hyperlink(url: str, label: str = "open") -> str:
     everything else off screen, on surfaces whose whole purpose is to be scanned
     and clicked down.
 
-    The label is fixed, not the job title. A cell beginning with `=` is a formula
-    and both applications execute what is in it, and these titles arrive from the
-    open internet. The url still has to be interpolated, so its quotes are doubled
-    (the escape both use) and anything not plainly http(s) is returned as inert
-    text instead.
+    The label may be a job title, which arrives from the open internet, so it is
+    escaped exactly as the url is. Doubling `"` is how both applications escape a
+    quote INSIDE a string literal, and the formula is built here rather than
+    anywhere the title could reach - so a title carrying quotes ends the literal
+    early and starts a new one containing itself, rather than escaping into the
+    formula. What must never happen is passing a title through as a cell's whole
+    contents when it happens to begin with `=`; that is the injection this file
+    guards against, and it is a different thing from labelling a link.
+
+    Anything not plainly http(s) is returned as inert text instead.
 
     Shared by the CSV export and the Sheets writer so the two cannot drift, which
     they already did once over column order.
@@ -254,4 +259,5 @@ def hyperlink(url: str, label: str = "open") -> str:
     url = (url or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         return url
-    return '=HYPERLINK("' + url.replace('"', '""') + '","' + label + '")'
+    return ('=HYPERLINK("' + url.replace('"', '""')
+            + '","' + str(label).replace('"', '""') + '")')

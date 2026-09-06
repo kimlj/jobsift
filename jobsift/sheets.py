@@ -77,7 +77,16 @@ def _cell(header: str, record: dict) -> str:
         # The exact count is in the CSV as evidence_chars. Here it was noise:
         # the column is scanned down a list to sort the trustworthy rows from
         # the rest, and 182 against 155 is not a distinction anyone acts on.
-        return "snippet only" if count else "title"
+        return "snippet" if count else "title"
+    if header == "job_title":
+        # The title IS the link. Hovering a separate one-word cell, waiting for
+        # the preview, and clicking that is three actions for the thing the row
+        # exists to do.
+        title = str(record.get("job_title") or "")
+        linked = hyperlink(record.get("url", ""), title)
+        # hyperlink hands back its input unchanged when it is not a real link, so
+        # a row with no url keeps a plain title rather than printing "N/A".
+        return linked if linked.startswith("=HYPERLINK(") else title
     if header == "url":
         return hyperlink(record.get("url", ""))
     return str(record.get(header, ""))
