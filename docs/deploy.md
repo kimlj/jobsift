@@ -242,21 +242,95 @@ filters dropped or why. Once the CSV looks right, drop the flag.
 [Unit]
 Description=jobsift
 After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
+User=YOU
 WorkingDirectory=/home/YOU/jobsift
-ExecStart=/home/YOU/jobsift/.venv/bin/python -m jobsift
+ExecStart=/home/YOU/jobsift/.venv/bin/python -u -m jobsift
 Restart=always
 RestartSec=30
+
+# Python buffers stdout when it is a pipe, and journalctl is a pipe. Without
+# this (or the -u above) the log arrives in 8KB blocks, so `journalctl -f`
+# shows nothing for the first half hour and you conclude it is not running.
+Environment=PYTHONUNBUFFERED=1
+
+# It reads a mailbox, holds API keys and writes one directory. Nothing here is
+# exotic; it is the standard set, and a compromised dependency is the reason.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/YOU/jobsift/data /home/YOU/jobsift/logs
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl enable --now jobsift
 journalctl -u jobsift -f      # follow logs
 ```
+
+**Check these three lines on the first start.** Each is a thing that fails
+quietly rather than crashing:
+
+```
+USD to PHP: 62.67 (live from frankfurter, 2026-09-05)   <- not "fallback"
+Google Sheet output enabled (Shortlist)                  <- not an exception
+Telegram alerts enabled (threshold 60)
+```
+
+`ProtectHome=read-only` is the one that usually bites: the service account JSON,
+the resume, `.env` and `config.yaml` are all read-only under it, which is
+correct, but `data/` and `logs/` must be listed in `ReadWritePaths` or the
+database cannot be written. If the paths are wrong the unit fails on the first
+write, not on start.
+
+### What it needs that the local run does not
+
+| | |
+|---|---|
+| **Outbound HTTPS** | Anthropic or OpenAI, `imap.gmail.com:993`, Google Sheets, the boards, `api.frankfurter.app` |
+| **The clock** | Ensure `systemd-timesyncd` is running. IMAP `SINCE` searches and the crawl-delay bookkeeping are both date arithmetic |
+| **`data/` on disk you back up** | `jobs.db` holds dedup state, processed-email uids and every applied confirmation. Losing it re-alerts everything |
+| **The whole config set** | `.env`, `config.yaml`, `resume.txt`, `profile.yaml`, `service-account.json`. Four of the five are gitignored, so `git clone` on the VPS gets you none of them |
+
+Copy the gitignored files over rather than recreating them, and `chmod 600` them:
+
+```bash
+scp .env config.yaml resume.txt profile.yaml service-account.json YOU@vps:~/jobsift/
+ssh YOU@vps 'chmod 600 ~/jobsift/{.env,service-account.json,profile.yaml}'
+```
+
+### Do not run two copies
+
+The dedup state is in SQLite on one machine, so a laptop and a VPS running at
+once do not coordinate: both fetch the same mail, both score it, and you pay
+twice for duplicate Telegram alerts and duplicate sheet rows. Stop the local one
+before enabling the service.
+
+If you have been running locally, move the database rather than starting fresh —
+otherwise the first VPS pass treats every job in your inbox as new:
+
+```bash
+scp data/jobs.db YOU@vps:~/jobsift/data/
+```
+
+### Upgrading on the VPS
+
+```bash
+cd ~/jobsift && git pull
+sudo systemctl restart jobsift
+.venv/bin/python -m jobsift --resync-sheet     # only after a release that changes columns
+```
+
+The database migrates itself on start. The sheet migrates its columns on the next
+pass. `--resync-sheet` is the third part — it rewrites values under columns whose
+meaning changed — and it is free.
 
 **Option B — cron** (with `--once` every 5 min):
 
