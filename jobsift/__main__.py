@@ -97,6 +97,12 @@ def _run_draft(args, config) -> None:
 # calls and a log line, not forty. The rest are picked up on later passes.
 MAX_DRAFTS_PER_PASS = 3
 
+# Below this many characters of posting, a draft is not worth its call. Measured
+# rather than picked: across the stored jobs, onlinejobs.ph carries a median of
+# 3,013 characters and jobicy 7,016, while indeed carries 155, jobstreet's search
+# API 182 and linkedin 3. Nothing real sits between those two groups.
+MIN_POSTING_CHARS = 400
+
 
 def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
     """Draft applications for rows ticked `draft` in the sheet. Returns how many.
@@ -158,15 +164,31 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
         if len(posting) < 400:
             posting = fetch_posting(url, allow_hosts) or posting
 
-        # Say which text this draft is actually working from. "0 chars" means the
-        # stored page text was missing and the live fetch failed too, so the model
-        # sees only description_summary - a sentence or two. Indeed blocks the
-        # fetch outright, so its rows land here routinely, and a draft built on a
-        # sentence is worth knowing about before it is read as a real one.
-        source = (f"{len(posting)} chars fetched" if posting
-                  else f"summary only, {len(job.get('description_summary') or '')} chars")
-        log.info("Drafting for %s @ %s (%s)",
-                 job.get("job_title"), job.get("company"), source)
+        # How much posting text this draft would actually see, from the best
+        # source available: the page text kept at enrich time, else a live fetch,
+        # else whatever the board's own listing carried.
+        available = posting or (job.get("description_summary") or "")
+        if len(available) < MIN_POSTING_CHARS:
+            # Refuse rather than spend. A draft off two sentences comes back with
+            # no employer questions (there are none in the text to find), a letter
+            # written from the title, and a requirements table judging nothing -
+            # and it looks exactly like a real draft in the tab.
+            #
+            # This is a property of the SOURCE, not of the row. Indeed and
+            # Jobstreet are both in skip_link_domains, so nothing is ever fetched
+            # for them; Indeed blocks it and the Jobstreet job page is 403 behind
+            # Cloudflare. onlinejobs.ph rows carry thousands of characters because
+            # that scraper reads the page itself, and they draft well.
+            log.info("Skipping draft for %s @ %s: only %d chars of posting",
+                     job.get("job_title"), job.get("company"), len(available))
+            sheet.set_draft_status({
+                url: f"needs the posting text - run: --draft {row['id']} --posting FILE"
+            })
+            continue
+
+        log.info("Drafting for %s @ %s (%d chars of posting, %s)",
+                 job.get("job_title"), job.get("company"), len(available),
+                 "fetched" if posting else "from the listing")
         sheet.set_draft_status({url: "drafting..."})
         if posting:
             # Same substitution --posting makes: the full text replaces the stored
