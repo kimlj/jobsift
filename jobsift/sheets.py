@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from .filters import currency_for, normalize_salary_php
 from .utils import hyperlink
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,12 @@ HEADERS = [
     # of the link: which board this came from decides how much to trust the row
     # beside it, and the scored_on column two places left says the same thing in
     # numbers. onlinejobs.ph rows carry the whole ad; indeed rows carry a title.
-    "job_title", "url", "source", "company", "salary", "location", "remote",
+    # salary as the board wrote it, then the same figure normalised to pesos a
+    # month. Both, because they answer different questions: the first is what the
+    # employer said, the second is what the filter compared, and a row that looks
+    # underpaid is usually one where those two disagree ("$25/hr", "50k PA").
+    "job_title", "url", "source", "salary", "salary_php_monthly", "company",
+    "location", "remote",
     "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
     "interest_fit", "matching_skills", "missing_skills", "reasoning", "status",
@@ -59,6 +65,17 @@ DRAFT_HEADERS = [
     "drafted_at", "score", "job_title", "company", "url", "apply_via",
     "salary_answer", "gaps", "cover_letter", "tailored_resume", "questions",
 ]
+
+
+def _a1(index: int) -> str:
+    """Column index to its A1 letters. Past 25 columns "Z"+1 is not "[" but "AA",
+    and HEADERS is already 27 long."""
+    letters = ""
+    index += 1
+    while index:
+        index, rest = divmod(index - 1, 26)
+        letters = chr(ord("A") + rest) + letters
+    return letters
 
 
 def _cell(header: str, record: dict) -> str:
@@ -87,6 +104,20 @@ def _cell(header: str, record: dict) -> str:
         # hyperlink hands back its input unchanged when it is not a real link, so
         # a row with no url keeps a plain title rather than printing "N/A".
         return linked if linked.startswith("=HYPERLINK(") else title
+    if header == "salary_php_monthly":
+        # Written as a bare number so the column sorts and filters as one.
+        stored = record.get("salary_php_monthly")
+        if stored not in (None, ""):
+            return str(stored)
+        # Recomputed, not stored, exactly as the CSV does it: the row then shows
+        # what TODAY's parser makes of the salary, which is the number that
+        # answers "why was this kept or dropped".
+        value = normalize_salary_php(
+            record.get("salary") or "",
+            job_type=record.get("job_type") or "",
+            default_currency=currency_for(record),
+        )
+        return str(round(value)) if value else ""
     if header == "url":
         return hyperlink(record.get("url", ""))
     return str(record.get(header, ""))
@@ -145,35 +176,103 @@ class SheetWriter:
         # row one column off nothing and looks blank at the top.
         current = ws.row_values(1)
         if current != headers:
-            # A tab written before a column existed holds its data one column to
-            # the left of where the new headers say it is. Rewriting row 1 alone
-            # would silently relabel every value in it, so make room first.
-            added = [h for h in headers if h not in current]
-            kept = [h for h in headers if h not in added]
-            if current and added and kept == current:
-                # Ascending order of the FINAL index: each insert shifts what is
-                # to its right, so a later column's index is already correct by
-                # the time its turn comes.
-                self.spreadsheet.batch_update({"requests": [
-                    {"insertDimension": {
-                        "range": {"sheetId": ws.id, "dimension": "COLUMNS",
-                                  "startIndex": headers.index(name),
-                                  "endIndex": headers.index(name) + 1},
-                        "inheritFromBefore": False}}
-                    for name in sorted(added, key=headers.index)
-                ]})
-            elif current and kept != current:
-                # Columns were removed or reordered, not just added. Writing the
-                # new header row over this would relabel every value under it,
-                # and a wrong label on real data is worse than a stale one.
-                logger.warning(
-                    "%s has headers this version cannot migrate (%s); leaving row 1 alone",
-                    ws.title, current)
+            if not self._migrate_headers(ws, current, headers):
                 return ws
             ws.update([headers], "A1", value_input_option="RAW")
 
         self._setup(ws, headers, tickbox, clip)
         return ws
+
+    def _migrate_headers(self, ws, current: list, headers: list) -> bool:
+        """Bring an existing tab's columns to `headers`, data and all.
+
+        Every column change shipped here has to reach a sheet somebody already
+        has, or the upgrade quietly writes new labels over old values: rewriting
+        row 1 is the one thing that must never be done on its own. So columns are
+        added where they belong and moved to where they belong, and only then is
+        the header row written - by which point writing it changes nothing.
+
+        Returns False when the tab holds a column this version does not know. It
+        is not necessarily wrong (somebody's own notes column), but it cannot be
+        placed, so the row is left exactly as it is and the caller does nothing.
+        """
+        unknown = [h for h in current if h and h not in headers]
+        if unknown:
+            logger.warning(
+                "%s has columns this version does not know (%s); leaving row 1 alone. "
+                "Remove or rename them to let the sheet migrate.", ws.title, unknown)
+            return False
+
+        # `now` tracks what the sheet looks like as each request is applied, so
+        # the whole migration can be planned in one batch instead of re-reading.
+        now = list(current)
+        requests = []
+
+        for name in sorted([h for h in headers if h not in now], key=headers.index):
+            at = headers.index(name)
+            at = min(at, len(now))
+            requests.append({"insertDimension": {
+                "range": {"sheetId": ws.id, "dimension": "COLUMNS",
+                          "startIndex": at, "endIndex": at + 1},
+                "inheritFromBefore": False}})
+            now.insert(at, name)
+
+        for target, name in enumerate(headers):
+            if target >= len(now) or now[target] == name:
+                continue
+            frm = now.index(name)
+            # destinationIndex is read in the coordinates BEFORE the column is
+            # lifted out, so moving right needs one more than the final position.
+            requests.append({"moveDimension": {
+                "source": {"sheetId": ws.id, "dimension": "COLUMNS",
+                           "startIndex": frm, "endIndex": frm + 1},
+                "destinationIndex": target if target < frm else target + 1}})
+            now.insert(target, now.pop(frm))
+
+        if requests:
+            try:
+                self.spreadsheet.batch_update({"requests": requests})
+            except Exception as err:
+                logger.warning("could not migrate %s: %s", ws.title, err)
+                return False
+            logger.info("%s: migrated columns to this version (%d change(s))",
+                        ws.title, len(requests))
+        return True
+
+    def resync(self, records: dict) -> int:
+        """Rewrite every row this version computes, from `records` keyed by url.
+
+        A column can change meaning without changing name - scored_on lost its
+        character counts, the monthly figure moved to a live exchange rate, the
+        title became the link - and none of that reaches rows already written.
+        A new user never notices, because their first write is already current;
+        the person who has been running it for a month sees a sheet half in each
+        version, which is worse than either.
+
+        `applied`, `draft` and `draft_status` are skipped. The first two are the
+        user's, and the third describes work in flight.
+        """
+        mine = {"applied", "draft", "draft_status"}
+        writable = [(i, h) for i, h in enumerate(HEADERS) if h not in mine]
+        total = 0
+        for ws in self._tabs():
+            updates = []
+            for url, row in self._url_rows(ws).items():
+                record = records.get(url)
+                if not record:
+                    continue
+                for index, header in writable:
+                    updates.append({"range": f"{_a1(index)}{row}",
+                                    "values": [[_cell(header, record)]]})
+            # Sheets rejects an enormous single batch; 5,000 cells is well inside
+            # the limit and is about 200 rows at a time.
+            for start in range(0, len(updates), 5000):
+                ws.batch_update(updates[start:start + 5000],
+                                value_input_option="USER_ENTERED")
+            if updates:
+                total += len(updates) // len(writable)
+                logger.info("%s: resynced %d row(s)", ws.title, len(updates) // len(writable))
+        return total
 
     def _target(self, record: dict):
         """Which tab a record belongs in. Below the bar only when there is a tab
@@ -211,6 +310,32 @@ class SheetWriter:
                               "startColumnIndex": column,
                               "endColumnIndex": column + 1},
                     "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
+        if "salary" in headers:
+            # As-written salaries are text, but Sheets reads a bare "1500" as a
+            # number and right-aligns it, so the column comes out ragged: "$17/hr"
+            # left, "1500" right, for no reason a reader can see. Forced left, and
+            # the raggedness it was signalling now lives in salary_php_monthly,
+            # which is a number on purpose.
+            written = headers.index("salary")
+            requests.append({"repeatCell": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1,
+                          "startColumnIndex": written, "endColumnIndex": written + 1},
+                "cell": {"userEnteredFormat": {"horizontalAlignment": "LEFT"}},
+                "fields": "userEnteredFormat.horizontalAlignment"}})
+
+        if "salary_php_monthly" in headers:
+            # The cell holds a plain number so the column sorts, filters and
+            # compares as one; the peso sign and the separators are a display
+            # format over it. Writing "P80,000" as text would give a column that
+            # sorts 100,000 before 80,000 and cannot be summed.
+            money = headers.index("salary_php_monthly")
+            requests.append({"repeatCell": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1,
+                          "startColumnIndex": money, "endColumnIndex": money + 1},
+                "cell": {"userEnteredFormat": {
+                    "numberFormat": {"type": "NUMBER", "pattern": '"₱"#,##0'}}},
+                "fields": "userEnteredFormat.numberFormat"}})
+
         if clip:
             # A cover letter and a resume in one row make it about 950px tall, and
             # two of those fill the screen. Clipped, every draft is one line and
@@ -227,7 +352,11 @@ class SheetWriter:
             {"updateSheetProperties": {
                 "properties": {"sheetId": ws.id,
                                "gridProperties": {"frozenRowCount": 1,
-                                                  "frozenColumnCount": 2 if tickbox else 0}},
+                                                  # Through score: the two tick
+                                                  # boxes, their status, and the
+                                                  # number you scroll to compare
+                                                  # everything else against.
+                                                  "frozenColumnCount": 4 if tickbox else 0}},
                 "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}},
             {"repeatCell": {
                 "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
@@ -320,7 +449,7 @@ class SheetWriter:
         if not wanted:
             return 0
         applied_col = HEADERS.index("applied")
-        letter = chr(ord("A") + applied_col)
+        letter = _a1(applied_col)
         ticked = 0
         for ws in self._tabs():
             rows = [row for url, row in self._url_rows(ws).items() if url in wanted]
@@ -377,7 +506,7 @@ class SheetWriter:
         if not statuses:
             return 0
         column = HEADERS.index("draft_status")
-        letter = chr(ord("A") + column)
+        letter = _a1(column)
         written = 0
         for ws in self._tabs():
             updates = [
@@ -415,7 +544,7 @@ class SheetWriter:
         draft_col = HEADERS.index("draft")
         status_col = HEADERS.index("draft_status")
         url_col = HEADERS.index("url")
-        letter = chr(ord("A") + status_col)
+        letter = _a1(status_col)
         # Written by a pass in flight. Anything else in the cell is a message to
         # the reader (a failure, a request for the posting) and is left alone
         # unless the request behind it is gone.

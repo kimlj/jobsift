@@ -274,6 +274,15 @@ def main() -> None:
     parser.add_argument("--min-score", type=int, default=0, help="With --export: only rows at or above this score")
     parser.add_argument("--source", default="", help="With --export: only rows whose source matches")
     parser.add_argument(
+        "--resync-sheet",
+        action="store_true",
+        help="Rewrite every row of the Google Sheet from the database, using this "
+             "version's columns and formatting. Free - no model calls. Run it after "
+             "upgrading: new rows are written correctly anyway, but rows already in "
+             "the sheet keep whatever the version that wrote them produced. Your "
+             "applied and draft ticks are not touched.",
+    )
+    parser.add_argument(
         "--scan-applied",
         nargs="?",
         const=90,
@@ -333,8 +342,49 @@ def main() -> None:
 
     config = load_config(args.config, args.env)
 
+    # The USD rate multiplies every dollar-quoted listing, so it decides what
+    # clears min_salary_php and how the sheet sorts. Fetched once here, at the
+    # one place every branch below passes through, and pushed into filters as a
+    # module value as well as into settings: several call sites reach the parser
+    # without a settings dict (the sheet writer among them), and a rate that
+    # applied to some of them and not others would be worse than a stale one.
+    import os
+
+    from . import filters as _filters
+    from .fx import usd_to_php
+
+    _rate, _note = usd_to_php(
+        config.filters.get("usd_to_php") or _filters.USD_TO_PHP,
+        cache_path=os.path.join(os.path.dirname(config.database_path) or ".", "fx.json"),
+    )
+    _filters.set_usd_rate(_rate)
+    config.filters["usd_to_php"] = _rate
+    log.info("USD to PHP: %.2f (%s)", _rate, _note)
+
     if args.draft:
         _run_draft(args, config)
+        return
+
+    if args.resync_sheet:
+        import json
+        import sqlite3
+
+        from .sheets import SheetWriter
+
+        if not config.google_sheet.enabled:
+            raise SystemExit("google_sheet.enabled is false in config - nothing to resync.")
+
+        conn = sqlite3.connect(config.database_path)
+        conn.row_factory = sqlite3.Row
+        records = {r["url"]: json.loads(r["data"])
+                   for r in conn.execute("select url, data from jobs") if r["url"]}
+
+        # Constructing the writer migrates the columns; resync then rewrites the
+        # values under them. Both are needed: one moves the labels, the other
+        # brings what is beneath them up to what this version computes.
+        writer = SheetWriter(config.google_sheet, config.score_threshold)
+        count = writer.resync(records)
+        print(f"resynced {count} row(s) from {len(records)} stored job(s)")
         return
 
     if args.scan_applied:

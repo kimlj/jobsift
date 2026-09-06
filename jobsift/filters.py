@@ -44,7 +44,33 @@ CURRENCY_TO_PHP = {
 # Only the unambiguous ones. "$" is deliberately absent: it is USD far more often
 # than not on these boards, but CAD/AUD/SGD/NZD all write it too, so it is resolved
 # after an explicit three-letter code has had its chance.
+def set_usd_rate(rate: float) -> None:
+    """Point every USD conversion at `rate`. Call once, at startup.
+
+    Two places hold it, and setting only the obvious one silently does nothing:
+    CURRENCY_TO_PHP is built at import and captures USD_TO_PHP by VALUE, so
+    rebinding the constant afterwards leaves the table on the old number and
+    every conversion keeps using it. That is what happened on the first live
+    run - the log said 62.67 and the column was still computed at 58.
+    """
+    global USD_TO_PHP
+
+    USD_TO_PHP = float(rate)
+    CURRENCY_TO_PHP["usd"] = float(rate)
+
+
 CURRENCY_SYMBOLS = {"₱": "php", "€": "eur", "£": "gbp", "¥": "jpy", "₹": "inr", "₩": "krw"}
+
+# The words a Philippine employer actually types. "90000-150000 Peso" was being
+# read as dollars: no three-letter code, no symbol, so it fell through to the
+# source default of USD, then tripped the annual heuristic (90,000 USD a month is
+# not a wage) and came out at 435,000 a month instead of 90,000.
+#
+# This is the opposite case to TRY and COP above. Those are excluded because they
+# are ordinary English words that appear in prose; "peso" is not one, and on a
+# board serving the Philippines it means this peso. The Mexican and Colombian ones
+# are the theoretical collision, and the geography rules drop both countries.
+CURRENCY_WORDS = {"peso": "php", "pesos": "php", "piso": "php", "pisos": "php"}
 
 # Hours assumed per month when a listing quotes an hourly rate. 160 = 40h/week.
 # Part-time remote work is commonly 15-20h/week, which is why this is tunable and
@@ -127,6 +153,9 @@ def currency_rate(text: str, settings: dict | None = None, default: str = "PHP")
     for code in rates:
         if re.search(rf"(?<!\w){code}(?!\w)", low):
             return rates[code]
+    for word, code in CURRENCY_WORDS.items():
+        if re.search(rf"(?<!\w){word}(?!\w)", low):
+            return rates.get(code, 1.0)
     for symbol, code in CURRENCY_SYMBOLS.items():
         if symbol in text:
             return rates.get(code, 1.0)
