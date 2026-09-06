@@ -153,6 +153,44 @@ where it answers you:
 | `failed: ...` | it broke, with the reason |
 
 That column is written by the program; the `draft` and `applied` boxes are yours.
+
+### Upgrading
+
+Pull a newer jobsift and your sheet catches up on its own. Columns added or moved
+by a release are inserted and moved **with their data** the next time the program
+opens the sheet, before the header row is touched.
+
+What that does not do is rewrite rows already written. A column can change meaning
+without changing name, so after upgrading run:
+
+```bash
+python -m jobsift --resync-sheet
+```
+
+It rewrites every row from the database using the current version's columns and
+formatting. **Free** - no model calls - and it leaves your `applied` and `draft`
+ticks alone.
+
+If you added a column of your own, the migration stops and says so rather than
+guessing where it belongs. Remove or rename it and the sheet migrates.
+
+### Currency
+
+Salaries appear twice: as the board wrote them, and normalised to pesos a month.
+The second is what the salary filter actually compared, so a listing that looks
+underpaid is usually one where the two disagree - `$25/hr` is not a low number.
+
+The USD rate is **fetched daily** (ECB reference rates, no key) and cached in
+`data/fx.json`. If the fetch fails it falls back to the cache, then to
+`filters.usd_to_php` in your config, then to a built-in - a currency API being
+down never stops a run. The startup log says which was used:
+
+```
+USD to PHP: 62.67 (live from frankfurter, 2026-09-05)
+```
+
+Set `filters.usd_to_php` only if you want to pin a rate; it is the fallback, not
+an override.
 Draft requests are served at the *start* of a pass, before the sources are scraped,
 because a scrape can run for several minutes on its own.
 
