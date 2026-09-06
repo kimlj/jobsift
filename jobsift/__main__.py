@@ -158,8 +158,15 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
         if len(posting) < 400:
             posting = fetch_posting(url, allow_hosts) or posting
 
-        log.info("Drafting for %s @ %s (%d chars of posting)",
-                 job.get("job_title"), job.get("company"), len(posting))
+        # Say which text this draft is actually working from. "0 chars" means the
+        # stored page text was missing and the live fetch failed too, so the model
+        # sees only description_summary - a sentence or two. Indeed blocks the
+        # fetch outright, so its rows land here routinely, and a draft built on a
+        # sentence is worth knowing about before it is read as a real one.
+        source = (f"{len(posting)} chars fetched" if posting
+                  else f"summary only, {len(job.get('description_summary') or '')} chars")
+        log.info("Drafting for %s @ %s (%s)",
+                 job.get("job_title"), job.get("company"), source)
         sheet.set_draft_status({url: "drafting..."})
         if posting:
             # Same substitution --posting makes: the full text replaces the stored
