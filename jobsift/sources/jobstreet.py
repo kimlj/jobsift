@@ -24,14 +24,24 @@ the most effort guessing at:
 So this is not a scraper. It is one GET against a documented-shaped JSON endpoint,
 no HTML parsing, no LLM extract call, and no page fetch.
 
-**What it cannot give us is the posting.** Only search is open: the detail page is
-403 and `/api/jobsearch/v5/job/<id>`, `/jobdetails/<id>` and
-`/api/job-details/v1/jobs/<id>` all 404. What arrives is `teaser` — around 100
+**Search does not carry the posting.** What arrives is `teaser` — around 100
 characters — plus bullet points when the advertiser bought them. That is well under
 SNIPPET_CHARS, so these jobs score in snippet mode and Telegram marks them with the
-"scored on an N-char alert snippet" warning. That is the correct outcome and not a
-thing to paper over: exclude_degree_required cannot fire on a teaser, because the
-degree sentence is in a posting we are never shown.
+"scored on an N-char alert snippet" warning. exclude_degree_required cannot fire on
+a teaser, because the degree sentence is in a posting search never shows.
+
+**The posting itself is available, and this file used to say it was not.** The
+claim was that only search is open, on the evidence that the job page is 403 and
+`/api/jobsearch/v5/job/<id>`, `/jobdetails/<id>` and `/api/job-details/v1/jobs/<id>`
+all 404. Every one of those is true, and the conclusion still did not follow: the
+job page is a JavaScript app, and the request it makes is a GraphQL POST, which was
+never tried. It answers, and returns the advertiser's whole ad — 4,302 characters
+for job 94367720 against 182 from the teaser. See `fetch_details` below.
+
+That is used for DRAFTING only, one job at a time and only when a draft is asked
+for. Scoring still runs on the teaser. Fetching every listing's ad at scrape time
+would turn one search request into fifty, and would grow the input of every scoring
+call — worth doing deliberately, if at all, and not as a side effect of this.
 
 Measured 2026-09-01, keywords=developer: 4,230 total, of which the server itself
 will narrow to 743 remote or 1,955 remote+hybrid before sending anything.
@@ -40,6 +50,7 @@ will narrow to 743 remote or 1,955 remote+hybrid before sending anything.
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 import httpx
@@ -53,6 +64,77 @@ logger = logging.getLogger(__name__)
 # PH-Main at all — it works, and it is the only one of them we want.
 BASE_URL = "https://ph.jobstreet.com/api/jobsearch/v5/search"
 JOB_URL = "https://ph.jobstreet.com/job/{id}"
+
+# The full posting, which the search endpoint does not carry.
+#
+# The header above says the teaser is all there is, and that was wrong: it was
+# concluded from the REST shapes (`/api/jobsearch/v5/job/<id>`, `/jobdetails/<id>`,
+# `/api/job-details/v1/jobs/<id>` all 404) without trying the GraphQL endpoint the
+# site's own job page calls. That one answers, and returns the advertiser's whole
+# ad - 4,302 characters for job 94367720, against 182 from the search teaser.
+#
+# Still not a scraper: one POST to a JSON endpoint, the same request the job page
+# makes, no browser and nothing parsed out of HTML. It is called once per job and
+# only when a draft is actually asked for, so a scrape of fifty listings is still
+# the one search request it always was.
+DETAILS_URL = "https://ph.jobstreet.com/graphql"
+DETAILS_QUERY = """query jobDetails($id: ID!) {
+  jobDetails(id: $id, tracking: null) {
+    job {
+      title
+      content(platform: WEB)
+      advertiser { name }
+      salary { label }
+      location { label }
+      workTypes { label }
+    }
+  }
+}"""
+
+_JOB_ID_RE = re.compile(r"jobstreet\.com/job/(\d+)", re.I)
+
+
+def job_id_from_url(url: str) -> str:
+    """The numeric id in a Jobstreet job URL, or "" if it is not one."""
+    match = _JOB_ID_RE.search(url or "")
+    return match.group(1) if match else ""
+
+
+def fetch_details(job_id: str, timeout: float = 25.0) -> str:
+    """The advertiser's full ad as plain text, or "" if it cannot be had."""
+    from ..utils import html_to_text
+
+    if not job_id:
+        return ""
+    try:
+        response = httpx.post(
+            DETAILS_URL,
+            json={"query": DETAILS_QUERY, "variables": {"id": job_id}},
+            headers={
+                "User-Agent": USER_AGENT,
+                "Content-Type": "application/json",
+                # The brand and country headers are what make one endpoint answer
+                # for Jobstreet PH rather than for SEEK AU.
+                "seek-request-country": "PH",
+                "seek-request-brand": "jobstreet",
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        job = ((response.json().get("data") or {}).get("jobDetails") or {}).get("job")
+        if not job:
+            return ""
+        parts = [
+            job.get("title") or "",
+            (job.get("advertiser") or {}).get("name") or "",
+            (job.get("location") or {}).get("label") or "",
+            (job.get("salary") or {}).get("label") or "",
+            html_to_text(job.get("content") or "", limit=20000),
+        ]
+        return "\n".join(p for p in parts if p)
+    except Exception as exc:
+        logger.info("jobstreet: could not fetch details for %s (%s)", job_id, exc)
+        return ""
 DEFAULT_SITE_KEY = "PH-Main"
 
 USER_AGENT = "jobsift/0.1 (personal job-alert tool; +https://github.com/kimlj/jobsift)"
