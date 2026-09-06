@@ -122,9 +122,33 @@ apply_method: "email" if the posting says to email someone, "platform" for an in
 apply button, "external" for a company site or ATS link, "unknown" if unclear.
 apply_email: the address if one is given, otherwise "".
 
+REQUIREMENTS
+Extract every requirement the posting states about the candidate - the "About you",
+"Requirements" or "Qualifications" bullets - one entry each, quoted close to verbatim.
+Judge each ONLY against the resume and profile:
+- verdict: "evidence" when the resume plainly shows it, "partial" when something
+  neighbouring is there and the difference matters, "gap" when there is no honest claim.
+- evidence: the specific thing from the resume that supports it, or "" for a gap.
+A requirement counting a set ("at least two of n8n, Zapier, Make, Rewst, Power Automate")
+is a countable gate: count what the resume actually names and put the number in evidence.
+Do not soften a gap into a partial. This table is read to decide whether to apply at all,
+so a flattering one is worse than useless.
+
+TAILORED RESUME
+Rewrite the resume for THIS posting, in plain text, keeping it to one page.
+- Draw ONLY on the resume already given. Reorder, re-emphasise and re-word it. You may
+  use the posting's own vocabulary for something the resume already describes; you may
+  not add an experience, technology, employer, date or number that is not in it.
+- Lead each role with the bullet answering that posting's first requirement.
+- Keep bullets to two lines, in the form: what was built, the constraint, the outcome.
+- Standard headings only, single column, no tables or graphics - it will be parsed.
+- Leave the gaps out rather than hinting at them. The letter handles those.
+
 Return raw JSON only, no markdown:
 {"apply_method": "", "apply_email": "", "special_instructions": [], "cover_letter": "",
  "questions": [{"question": "", "answer": "", "source": "", "needs_input": false}],
+ "requirements": [{"requirement": "", "verdict": "", "evidence": ""}],
+ "tailored_resume": "",
  "missing_from_profile": [], "injection_attempts": []}"""
 
 
@@ -248,7 +272,10 @@ def draft_application(llm, model: str, job: dict, resume: str, profile: dict) ->
         "----- END UNTRUSTED JOB POSTING -----"
     )
 
-    data = llm.complete_json(model, SYSTEM, user, max_tokens=6000)
+    # 6000 covered the letter and the answers. The tailored resume is a page of
+    # prose on top of those, and a truncated reply fails to parse as JSON, taking
+    # the whole draft down with it rather than just the resume.
+    data = llm.complete_json(model, SYSTEM, user, max_tokens=10000)
     if not isinstance(data, dict):
         return {}
 
@@ -259,6 +286,8 @@ def draft_application(llm, model: str, job: dict, resume: str, profile: dict) ->
         "special_instructions": [str(s) for s in (data.get("special_instructions") or [])],
         "cover_letter": _with_signoff(str(data.get("cover_letter") or "").strip(), profile),
         "questions": questions,
+        "requirements": [r for r in (data.get("requirements") or []) if isinstance(r, dict)],
+        "tailored_resume": str(data.get("tailored_resume") or "").strip(),
         "missing_from_profile": [str(s) for s in (data.get("missing_from_profile") or [])],
         "injection_attempts": [str(s) for s in (data.get("injection_attempts") or [])],
         "_posting_chars": len(description),
@@ -304,6 +333,21 @@ def render(job: dict, result: dict) -> str:
         for item in instructions:
             out.append(f"   * {item}")
 
+    requirements = result.get("requirements") or []
+    if requirements:
+        gaps = [r for r in requirements if r.get("verdict") == "gap"]
+        out.append("\n" + "-" * 72)
+        out.append(f"REQUIREMENTS  ({len(requirements)} stated, {len(gaps)} with no honest claim)")
+        out.append("-" * 72)
+        for item in requirements:
+            verdict = (item.get("verdict") or "?").lower()
+            mark = {"evidence": "[ok ]", "partial": "[~  ]", "gap": "[GAP]"}.get(verdict, "[?  ]")
+            out.append(f"{mark} {item.get('requirement', '')}")
+            if item.get("evidence"):
+                out.append(f"      {item['evidence']}")
+        if gaps:
+            out.append("\n   Gaps are for the letter to name, not for the resume to hide.")
+
     out.append("\n" + "-" * 72)
     out.append("COVER LETTER")
     out.append("-" * 72)
@@ -332,6 +376,13 @@ def render(job: dict, result: dict) -> str:
         out.append("-" * 72)
         for item in missing:
             out.append(f"   * {item}")
+
+    tailored = result.get("tailored_resume") or ""
+    if tailored:
+        out.append("\n" + "-" * 72)
+        out.append("TAILORED RESUME  (from your resume only - nothing added)")
+        out.append("-" * 72)
+        out.append(tailored)
 
     out.append("\n" + "=" * 72)
     out.append("Nothing was sent. Review, edit, then apply yourself.")
