@@ -123,15 +123,38 @@ applied to, which is worse than no tick at all.
 `--skip-applied` reads both the database and your own ticks, so it works whether
 the mark came from a receipt or from you.
 
-### Drafts land in the sheet too
+### Drafting: the one thing here that costs money per use
+
+> **Every draft is a paid model call.** Scoring already costs one call per job and
+> happens on its own; drafting costs *another*, on the more expensive model, and it
+> only happens when you ask for it. Nothing in this section runs by itself.
+
+Two ways to ask.
+
+**From the terminal**, when you have the posting text in front of you:
 
 ```bash
 python -m jobsift --draft 309 --posting posting.txt
 ```
 
-prints a requirements table, a cover letter, answers to the employer's questions and
-a tailored resume, then logs all of it to a **Drafts** tab. That tab is created the
-first time you draft something, never before. `--no-sheet` prints without logging.
+**From the sheet**, which is the easier one: tick the **`draft`** box on any row.
+The next pass picks it up, drafts, and writes the result to the **Drafts** tab.
+
+Either way you get a requirements table, a cover letter, answers to the employer's
+questions and a tailored resume. `--no-sheet` prints without logging.
+
+What the tick costs and what stops it running away:
+
+| | |
+|---|---|
+| Cost | One model call per ticked row, on the scoring model |
+| Rate | At most **3 per pass**. Tick forty rows and it does three, logs the rest, and picks them up on later passes |
+| Repeats | A url already in the Drafts tab is never drafted again. **The tick is never cleared** — that column is yours, and the program only reads it |
+| Posting text | The stored page text first; the live page if that is thin; the summary only as a last resort, and the draft says so when it had to |
+
+The Drafts tab is created the first time you draft something, never before. Its rows
+are clipped to one line each, since a cover letter and a resume in one row make it
+about 950px tall. Click a cell to read or copy the whole thing.
 
 The resume is plain text in a cell, to be copied into whatever you actually send. It
 is not a generated document on purpose: a cell holds 50,000 characters, the text is

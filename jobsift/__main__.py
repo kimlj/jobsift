@@ -89,6 +89,86 @@ def _run_draft(args, config) -> None:
             print(f"\nCould not write to the sheet ({err}). The draft above is unaffected.")
 
 
+# Each tick is a model call, so a careless tick of forty rows should cost three
+# calls and a log line, not forty. The rest are picked up on later passes.
+MAX_DRAFTS_PER_PASS = 3
+
+
+def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
+    """Draft applications for rows ticked `draft` in the sheet. Returns how many.
+
+    The tick is never cleared. Clearing it would be the program writing to a
+    column it promised only to read, and the user would lose the record of what
+    they asked for. What stops a re-draft every five minutes is the Drafts tab
+    itself: a url already in it is already answered.
+    """
+    import json
+    import sqlite3
+
+    import yaml
+
+    from .draft import draft_application, fetch_posting, render
+
+    if sheet is None:
+        return 0
+    try:
+        wanted = sheet.drafts_requested() - sheet.drafted_urls()
+    except Exception:
+        log.exception("Could not read draft requests from the sheet")
+        return 0
+    if not wanted:
+        return 0
+
+    try:
+        profile = yaml.safe_load(open(args.profile, encoding="utf-8")) or {}
+    except FileNotFoundError:
+        log.warning("%d draft(s) requested but there is no %s to answer from",
+                    len(wanted), args.profile)
+        return 0
+
+    conn = sqlite3.connect(config.database_path)
+    conn.row_factory = sqlite3.Row
+    allow_hosts = (config.filters.get("fetch") or {}).get("allow_hosts")
+    done = 0
+
+    for url in sorted(wanted)[:MAX_DRAFTS_PER_PASS]:
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE url = ? ORDER BY id DESC LIMIT 1", (url,)
+        ).fetchone()
+        if not row:
+            log.info("draft requested for a url with no stored job: %s", url)
+            continue
+        job = json.loads(row["data"])
+        job["id"] = row["id"]
+
+        # Stored page text first - it was captured when the posting was live, and
+        # a job worth drafting for is often one that has since been taken down.
+        posting = job.get("full_text") or ""
+        if len(posting) < 400:
+            posting = fetch_posting(url, allow_hosts) or posting
+
+        log.info("Drafting for %s @ %s (%d chars of posting)",
+                 job.get("job_title"), job.get("company"), len(posting))
+        if posting:
+            # Same substitution --posting makes: the full text replaces the stored
+            # snippet outright, because it is the same content only complete, and
+            # what the drafter most needs to see sits at the end of it.
+            job = {**job, "description_summary": posting, "description": posting}
+        try:
+            result = draft_application(llm, config.models["score"], job, resume, profile)
+            if not result:
+                continue
+            sheet.append_draft(job, result)
+            done += 1
+        except Exception:
+            log.exception("Draft failed for %s", url)
+
+    remaining = len(wanted) - done
+    if remaining > 0:
+        log.info("%d more draft(s) ticked; they run on later passes", remaining)
+    return done
+
+
 def _applied_urls(config) -> set[str]:
     """Everything marked applied, from both places it can be marked.
 
@@ -321,6 +401,7 @@ def main() -> None:
     while True:
         try:
             handled = run_once(config, llm, store, gmail, resume, sheet, telegram_send)
+            _serve_sheet_drafts(args, config, llm, sheet, resume)
             log.info("Pass complete — %d new job(s)", handled)
         except Exception:
             log.exception("Run failed")

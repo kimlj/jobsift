@@ -114,4 +114,10 @@ def enrich_job(
         "duration": details.get("duration") or job.get("duration"),
         "remote": bool(details.get("remote")) or "remote" in (job.get("location") or "").lower(),
         "enriched_from_page": True,
+        # The page was fetched, distilled into the fields above and then thrown
+        # away, which left description_summary (a sentence or two) as the only
+        # posting text anything downstream could see. Drafting an application off
+        # that is drafting blind. Kept on the record, so it reaches the database
+        # but not the sheet or the CSV, both of which name their columns.
+        "full_text": page_text,
     }

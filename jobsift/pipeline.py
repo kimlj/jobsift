@@ -57,6 +57,8 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "matching_skills": ", ".join(score.get("matching_skills") or []) or "N/A",
         "missing_skills": ", ".join(score.get("missing_skills") or []) or "N/A",
         "reasoning": score.get("reasoning") or "N/A",
+        # Not a column anywhere; see enrich. Present only for --draft.
+        "full_text": job.get("full_text") or "",
         "status": "new",
         "reported_at": datetime.now().isoformat(timespec="seconds"),
     }

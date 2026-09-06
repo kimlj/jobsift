@@ -243,6 +243,38 @@ def _with_signoff(letter: str, profile: dict) -> str:
     return "\n".join(lines).rstrip() + "\n\n" + block
 
 
+def fetch_posting(url: str, allow_hosts=None) -> str:
+    """The posting page as text, or "" if it cannot be had.
+
+    The database stores a summary, not the posting - job 309's is 159 characters,
+    and the compliance instruction this module exists to catch is usually in the
+    last paragraph of the real thing. So a draft asked for from the sheet fetches
+    the page rather than working from the summary, through the same safe_get the
+    enrich step uses, because the url still came from a stranger.
+    """
+    from .safefetch import UnsafeURL, safe_get
+    from .utils import html_to_text
+
+    url = (url or "").strip()
+    if not url.startswith("http"):
+        return ""
+    try:
+        response = safe_get(
+            url,
+            headers={"User-Agent": USER_AGENT,
+                     "Accept": "text/html,application/xhtml+xml"},
+            timeout=15,
+            allow_hosts=allow_hosts,
+        )
+        response.raise_for_status()
+        return html_to_text(response.text, limit=20000)
+    except UnsafeURL as exc:
+        logger.warning("draft: refused to fetch %s - %s", url, exc)
+    except Exception as exc:
+        logger.info("draft: could not fetch %s (%s)", url, exc)
+    return ""
+
+
 def salary_guidance(job: dict, profile: dict) -> str:
     """What to ask for, when the posting already advertises more than the profile wants.
 

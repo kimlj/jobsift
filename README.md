@@ -71,8 +71,10 @@ for one LLM provider — [Anthropic](https://console.anthropic.com) or
 [OpenAI](https://platform.openai.com). **The key costs money to use:** every
 job is read by the model once, and anything past the filters is read again to
 score it. One pass over a day of alerts plus the scrape sources ran ~150 calls.
-Do the first run with `--once --no-telegram` and read the CSV before scheduling
-anything.
+Drafting an application is a further call per job, on the more expensive model,
+and only ever when you ask for one - by running `--draft` or by ticking the
+`draft` box on a row in the sheet. Do the first run with `--once --no-telegram`
+and read the CSV before scheduling anything.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate

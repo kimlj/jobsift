@@ -22,6 +22,11 @@ HEADERS = [
     # column A. It exists because append_row writes from column A outward: a
     # checkbox you added there yourself would be overwritten by the next row.
     "applied",
+    # Tick this and the next pass drafts an application for the row: cover letter,
+    # employer answers, tailored resume, into the Drafts tab. Yours to set, like
+    # `applied` - the program only ever reads it, and it costs one model call per
+    # tick, which is why nothing ticks it for you.
+    "draft",
     "score", "job_title", "url", "company", "salary", "location", "remote",
     "source", "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
@@ -44,7 +49,7 @@ def _cell(header: str, record: dict) -> str:
     """One cell. `applied` is the user's tickbox, so it goes out as FALSE rather
     than empty — an empty cell under tickbox validation reads as blank, a FALSE
     reads as unticked. `url` gets the narrow clickable form; see utils.hyperlink."""
-    if header == "applied":
+    if header in ("applied", "draft"):
         return "FALSE"
     if header == "url":
         return hyperlink(record.get("url", ""))
@@ -85,7 +90,8 @@ class SheetWriter:
         self.ws_below = self._tab(below) if below else None
         self.draft_ws = None
 
-    def _tab(self, title: str, headers: list | None = None, tickbox: bool = True):
+    def _tab(self, title: str, headers: list | None = None, tickbox: bool = True,
+             clip: bool = False):
         """Fetch or create one tab, header it, and make it usable."""
         import gspread
 
@@ -101,10 +107,21 @@ class SheetWriter:
         # empty: a freshly created worksheet does not reliably read back as
         # empty, and a tab that skipped its header silently writes every later
         # row one column off nothing and looks blank at the top.
-        if ws.row_values(1) != headers:
+        current = ws.row_values(1)
+        if current != headers:
+            # A tab written before a column existed holds its data one column to
+            # the left of where the new headers say it is. Rewriting row 1 alone
+            # would silently relabel every value in it, so make room first.
+            added = [h for h in headers if h not in current]
+            if current and len(added) == 1 and [h for h in headers if h != added[0]] == current:
+                index = headers.index(added[0])
+                self.spreadsheet.batch_update({"requests": [{"insertDimension": {
+                    "range": {"sheetId": ws.id, "dimension": "COLUMNS",
+                              "startIndex": index, "endIndex": index + 1},
+                    "inheritFromBefore": False}}]})
             ws.update([headers], "A1", value_input_option="RAW")
 
-        self._setup(ws, headers, tickbox)
+        self._setup(ws, headers, tickbox, clip)
         return ws
 
     def _target(self, record: dict):
@@ -119,7 +136,8 @@ class SheetWriter:
             return self.ws
         return self.ws if score >= self.threshold else self.ws_below
 
-    def _setup(self, ws, headers: list | None = None, tickbox: bool = True) -> None:
+    def _setup(self, ws, headers: list | None = None, tickbox: bool = True,
+               clip: bool = False) -> None:
         """Make a tab usable without anyone opening a menu.
 
         Tick boxes on the applied column, a frozen header row and applied
@@ -134,18 +152,31 @@ class SheetWriter:
         url_col = headers.index("url")
         requests = []
         if tickbox:
-            applied_col = headers.index("applied")
-            requests.append({"setDataValidation": {
-                "range": {"sheetId": ws.id, "startRowIndex": 1,
-                          "endRowIndex": 5000,
-                          "startColumnIndex": applied_col,
-                          "endColumnIndex": applied_col + 1},
-                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
+            for name in ("applied", "draft"):
+                column = headers.index(name)
+                requests.append({"setDataValidation": {
+                    "range": {"sheetId": ws.id, "startRowIndex": 1,
+                              "endRowIndex": 5000,
+                              "startColumnIndex": column,
+                              "endColumnIndex": column + 1},
+                    "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
+        if clip:
+            # A cover letter and a resume in one row make it about 950px tall, and
+            # two of those fill the screen. Clipped, every draft is one line and
+            # the cell still holds the whole text to click into and copy.
+            requests.append({"repeatCell": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1},
+                "cell": {"userEnteredFormat": {"wrapStrategy": "CLIP"}},
+                "fields": "userEnteredFormat.wrapStrategy"}})
+            requests.append({"updateDimensionProperties": {
+                "range": {"sheetId": ws.id, "dimension": "ROWS",
+                          "startIndex": 1, "endIndex": 5000},
+                "properties": {"pixelSize": 21}, "fields": "pixelSize"}})
         requests += [
             {"updateSheetProperties": {
                 "properties": {"sheetId": ws.id,
                                "gridProperties": {"frozenRowCount": 1,
-                                                  "frozenColumnCount": 1 if tickbox else 0}},
+                                                  "frozenColumnCount": 2 if tickbox else 0}},
                 "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}},
             {"repeatCell": {
                 "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
@@ -253,6 +284,57 @@ class SheetWriter:
                 logger.warning("could not tick applied on %s: %s", ws.title, err)
         return ticked
 
+    def _ticked_urls(self, column: str) -> set[str]:
+        """Urls whose `column` tickbox is TRUE, across both job tabs."""
+        import re
+
+        index = HEADERS.index(column)
+        url_col = HEADERS.index("url")
+        out: set[str] = set()
+        for ws in self._tabs():
+            try:
+                flags = ws.col_values(index + 1)[1:]
+                formulas = ws.col_values(url_col + 1, value_render_option="FORMULA")[1:]
+            except Exception as err:
+                logger.warning("could not read %s on %s: %s", column, ws.title, err)
+                continue
+            for flag, cell in zip(flags, formulas):
+                if str(flag).strip().upper() not in ("TRUE", "1", "YES"):
+                    continue
+                match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
+                url = match.group(1) if match else str(cell).strip()
+                if url:
+                    out.add(url)
+        return out
+
+    def drafts_requested(self) -> set[str]:
+        """Urls with the draft box ticked. Each one costs a model call, so the
+        caller must also subtract drafted_urls() before spending anything."""
+        return self._ticked_urls("draft")
+
+    def drafted_urls(self) -> set[str]:
+        """Urls already in the Drafts tab. The tick stays ticked after a draft -
+        unticking it would be the program editing the user's own column - so this
+        is what stops it drafting the same job every five minutes, forever."""
+        import re
+
+        try:
+            ws = self.spreadsheet.worksheet("Drafts")
+        except Exception:
+            return set()
+        index = DRAFT_HEADERS.index("url")
+        try:
+            cells = ws.col_values(index + 1, value_render_option="FORMULA")[1:]
+        except Exception:
+            return set()
+        out: set[str] = set()
+        for cell in cells:
+            match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
+            url = match.group(1) if match else str(cell).strip()
+            if url:
+                out.add(url)
+        return out
+
     def existing_urls(self) -> set[str]:
         """Every url already in either tab.
 
@@ -315,7 +397,7 @@ class SheetWriter:
         from datetime import datetime
 
         if self.draft_ws is None:
-            self.draft_ws = self._tab("Drafts", DRAFT_HEADERS, tickbox=False)
+            self.draft_ws = self._tab("Drafts", DRAFT_HEADERS, tickbox=False, clip=True)
 
         requirements = result.get("requirements") or []
         gaps = [r.get("requirement", "") for r in requirements
