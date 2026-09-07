@@ -101,6 +101,22 @@ Working state as of 2026-09-07. **Running continuously** on the VPS
       dedup state is SQLite on one machine and two copies will double-score and
       double-alert.
 
+- [x] **onlinejobs.ph no longer re-reads detail pages it already has — done
+      2026-09-07.** `sources/__init__.py` builds an `is_seen` callback and was
+      passing it to `jobstreet_api` only; `onlinejobs_ph` got `fetch_jobs(settings)`
+      and so read a detail page for every title-gated listing, including ones the
+      pipeline discards the line after they arrive.
+
+      Measured on the first pass after the source came back: **106 of 112 detail
+      pages, 95%, were listings already in `seen_jobs`** — five seconds of
+      Crawl-delay each. That is not a first-run artefact, because the board leaves
+      postings up for months, so the same pages would be re-read every pass.
+
+      The hook is now passed through. It skips the DETAIL fetch only: all jobs are
+      still returned, so the documented contract ("purely an efficiency signal —
+      nothing is filtered by it") holds. `dryrun_seen_skip.py` proves that offline
+      with a stubbed client, asserting on requests made rather than on a log line.
+
 - [ ] **Back up `data/jobs.db` off the droplet.** It now holds the only record of
       which jobs have been seen, which emails are processed, and which
       applications the boards have confirmed. Losing it re-alerts everything and

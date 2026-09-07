@@ -160,8 +160,13 @@ def _parse_card(card) -> dict | None:
     }
 
 
-def fetch_jobs(settings: dict) -> list[dict]:
-    """Read the public job search listing. Returns extract-shaped job dicts."""
+def fetch_jobs(settings: dict, is_seen=None) -> list[dict]:
+    """Read the public job search listing. Returns extract-shaped job dicts.
+
+    `is_seen(job) -> bool` lets the caller say a listing is already stored. Here
+    it skips the DETAIL fetch rather than the listing itself: filtering stays the
+    pipeline's job, so passing nothing reads every kept job's page as before.
+    """
     max_pages = int(settings.get("max_pages", DEFAULT_MAX_PAGES))
     delay = float(settings.get("delay_seconds", DEFAULT_DELAY))
     if delay < DEFAULT_DELAY:
@@ -254,11 +259,33 @@ def fetch_jobs(settings: dict) -> list[dict]:
         # Detail pages, for jobs that survived the title gate only - the filter
         # runs first precisely so this costs one request per KEPT job rather
         # than one per listing seen.
+        #
+        # A listing already in seen_jobs is skipped here, because the pipeline
+        # discards it the line after it arrives: reading its page buys a longer
+        # description for a record that is about to be thrown away. Measured on
+        # the first pass after this source came back, 106 of 112 pages were that
+        # - 5 seconds of Crawl-delay each, nine tenths of the run, spent on jobs
+        # already in hand. The board leaves postings up for months, so this is
+        # the steady state and not a first-run artefact.
+        #
+        # The job dicts here never name an employer, so job_key falls back to the
+        # URL slug on both sides of the comparison, which is why it matches.
         if settings.get("fetch_details", True) and jobs:
-            logger.info("onlinejobs.ph: reading %d detail page(s) at %.0fs apart", len(jobs), delay)
-            for job in jobs:
-                if not job.get("url"):
-                    continue
+            pending = [j for j in jobs if j.get("url")]
+            if is_seen is not None:
+                fresh = [j for j in pending if not is_seen(j)]
+                skipped = len(pending) - len(fresh)
+                if skipped:
+                    logger.info(
+                        "onlinejobs.ph: skipping %d detail page(s) for listings already stored "
+                        "(saves %.0fs)", skipped, skipped * delay,
+                    )
+                pending = fresh
+            if pending:
+                logger.info(
+                    "onlinejobs.ph: reading %d detail page(s) at %.0fs apart", len(pending), delay
+                )
+            for job in pending:
                 time.sleep(delay)
                 full = _fetch_description(client, job["url"])
                 if full and len(full) > len(job.get("description") or ""):

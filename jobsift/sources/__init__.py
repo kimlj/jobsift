@@ -64,7 +64,7 @@ def collect(config, store=None) -> list[dict]:
             if name == "onlinejobs_ph":
                 from .onlinejobs import fetch_jobs
 
-                found = fetch_jobs(settings)
+                found = fetch_jobs(settings, is_seen=_seen)
             elif name == "jobstreet_api":
                 from .jobstreet import fetch_jobs
 
