@@ -1,6 +1,30 @@
-# Running on your VPS
+# Deploying jobsift
 
 No n8n, no subscription — it's a plain Python script.
+
+## 0. Choose the host first
+
+This is a decision, not a detail, because **the host decides which sources you can
+have.** Some boards answer a datacenter IP with a Cloudflare 403 while serving the
+identical request from a home connection — measured table under *The scrape sources
+may not work from a datacenter*.
+
+| What you want | Where to run it |
+|---|---|
+| Email alerts and the remote JSON feeds | A server. Unattended, always on, nothing blocked |
+| `onlinejobs.ph`, or any board that 403s a datacenter | A machine on a residential connection: a laptop, or a small always-on box at home |
+| Both | Still **one** host. Pick whichever carries the sources you actually use |
+
+The email half is most of jobsift and works anywhere, so a server is the right
+default. The scrape sources are the part that cares where you are.
+
+A home deployment only runs while that machine is on. Nothing is lost when it is
+off — unread email waits in the mailbox and listings stay up — but alerts arrive
+when the machine next wakes rather than when the job was posted. That gap only
+costs you something if you would have acted on the alert during it.
+
+Whatever you choose, **never run two copies against one database**. See *Do not run
+two copies* below.
 
 ## 1. Get the code + install
 
@@ -243,7 +267,7 @@ filters dropped or why. Once the CSV looks right, drop the flag.
 
 ## 4. Run it continuously
 
-**Option A — systemd (recommended):** create `/etc/systemd/system/jobsift.service`:
+**Option A — systemd** (a Linux server or an always-on box at home): create `/etc/systemd/system/jobsift.service`:
 
 ```ini
 [Unit]
@@ -358,14 +382,22 @@ once do not coordinate: both fetch the same mail, both score it, and you pay
 twice for duplicate Telegram alerts and duplicate sheet rows. Stop the local one
 before enabling the service.
 
-If you have been running locally, move the database rather than starting fresh —
-otherwise the first VPS pass treats every job in your inbox as new:
+When you move hosts, move the database rather than starting fresh — otherwise the
+first pass on the new host treats every job in your inbox as new, and re-alerts a
+backlog you have already read:
 
 ```bash
-scp data/jobs.db YOU@vps:~/jobsift/data/
+scp data/jobs.db YOU@vps:~/jobsift/data/      # local -> server
+scp YOU@vps:~/jobsift/data/jobs.db data/      # server -> local
 ```
 
-### Upgrading on the VPS
+Stop the old host **before** copying, so nothing writes to the file mid-transfer,
+and disable it (`systemctl disable jobsift`) so a reboot cannot quietly restart a
+second copy. If both hosts have been running, compare the two files rather than
+assuming the newer one wins — a copy that has been off for a week may still hold
+rows the other never saw.
+
+### Upgrading a systemd host
 
 ```bash
 cd ~/jobsift && git pull
@@ -377,11 +409,64 @@ The database migrates itself on start. The sheet migrates its columns on the nex
 pass. `--resync-sheet` is the third part — it rewrites values under columns whose
 meaning changed — and it is free.
 
-**Option B — cron** (with `--once` every 5 min):
+**Option B — Windows Task Scheduler** (for a laptop or home desktop):
+
+`run-jobsift.ps1` in the repo root is the launcher. It derives every path from its
+own location, so the repo can live anywhere, and writes a dated log under `logs/`.
+Register it to start at logon:
+
+```powershell
+$script = "$PWD\run-jobsift.ps1"
+$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
+  -ExecutionTimeLimit ([TimeSpan]::Zero) `
+  -RestartInterval (New-TimeSpan -Minutes 5) -RestartCount 999 -StartWhenAvailable
+$settings.DisallowStartIfOnBatteries = $false
+$settings.StopIfGoingOnBatteries     = $false
+Register-ScheduledTask -TaskName jobsift -Action $action -Trigger $trigger -Settings $settings
+```
+
+Four of those settings are load-bearing, and the Task Scheduler defaults get all
+four wrong for this program:
+
+- **`IgnoreNew`** — one pass at a time. Without it a restart can put two processes
+  on one SQLite file, which is the same hazard as running two hosts.
+- **`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries` false** — both default
+  to *true*, so on a laptop the task silently refuses to start unplugged and dies
+  the moment you unplug it. This is the setting people lose an afternoon to.
+- **`ExecutionTimeLimit` zero** — it is a daemon, not a job. The default kills it
+  after three days.
+
+The process survives sleep and resume, so no wake trigger is needed. Watch it with
+`Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
+
+**Why the launcher redirects through `cmd.exe`.** Python's `logging` writes to
+stderr. Windows PowerShell 5.1 wraps every stderr line from a native command in a
+`NativeCommandError`, so under `*>>` redirection with
+`$ErrorActionPreference = 'Stop'` the first line jobsift logs becomes a terminating
+error and the task dies on startup. The symptom is indistinguishable from a broken
+interpreter: task result `1`, an empty log, no process, and a manual
+`python -m jobsift --help` that works perfectly — because `--help` writes to
+stdout. `cmd`'s own `>>` and `2>&1` do no such wrapping.
+
+**Option C — cron** (with `--once`):
 
 ```cron
-*/5 * * * * cd /home/YOU/jobsift && .venv/bin/python -m jobsift --once >> data/cron.log 2>&1
+*/15 * * * * cd /home/YOU/jobsift && .venv/bin/python -m jobsift --once >> data/cron.log 2>&1
 ```
+
+**Mind the interval if any `scrape_sources` are enabled.** A pass that reads
+onlinejobs.ph spends its time inside the five-second Crawl-delay, and a catch-up
+pass after that source has been off is long: one measured 2026-09-07 read 350
+detail pages, which is **29 minutes** in one pass. A `*/5` or `*/15` schedule
+starts the next copy before that finishes, and cron will not stop it.
+
+Steady-state passes are far shorter, because a listing already in `seen_jobs` no
+longer costs a detail fetch. Size the interval on your slowest pass rather than
+your typical one, or use Option A or B, where the program's own loop paces itself
+and cannot overlap.
 
 ## Notes
 

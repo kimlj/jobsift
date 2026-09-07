@@ -1,8 +1,15 @@
 # TODO
 
-Working state as of 2026-09-07. **Running continuously** on the VPS
-(`159.223.59.45`) as a systemd unit at `/root/jobsift`, every 300s, since
-2026-09-06. `journalctl -u jobsift -f` to watch it.
+Working state as of 2026-09-07. **Running on the laptop** under a Windows Task
+Scheduler job (`jobsift`, triggered at logon) that starts `run-jobsift.ps1`, which
+runs the program's own 300s loop. Watch it with
+`Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
+
+Moved off the VPS on 2026-09-07 for one reason: onlinejobs.ph answers a datacenter
+IP with a Cloudflare 403 and serves a home connection normally, and it is the best
+source in the pipeline. The systemd unit on the droplet is **stopped and disabled**.
+The droplet itself stays: WordWarz, MDS Pro, Casinore and SendIt all run on it, so
+"retire the droplet" was never on the table.
 
 ## Waiting on external
 
@@ -73,11 +80,23 @@ Working state as of 2026-09-07. **Running continuously** on the VPS
       first pass did not treat the whole inbox as new. 366 jobs, 1,575 dedup
       keys, 202 processed uids, 1 applied confirmation.
 
-- [ ] **Get onlinejobs.ph flowing again from the VPS — the best source, currently
-      off there.** It is 108 of 366 stored jobs, every `evidence: full` row that
+- [x] **Get onlinejobs.ph flowing again — done 2026-09-07 by moving the pipeline
+      home instead.** It is 108 of 367 stored jobs, every `evidence: full` row that
       is not a remote feed, and every score of 90+. The droplet gets a Cloudflare
       403 on it; a residential connection running the identical code and
       User-Agent is served normally, so it is the datacenter IP and nothing else.
+
+      **Resolved by host, not by proxy.** A Tailscale exit node or a per-source
+      proxy on a home machine was scoped and rejected: both still require a machine
+      at home to be on, which is the same constraint as simply running there, with
+      more moving parts. Verified from the laptop 2026-09-07:
+      `GET /jobseekers/jobsearch` -> **200**, 186 KB, and a full pass fetched every
+      detail page at 200.
+
+      What was NOT done, deliberately: no residential proxy service (renting
+      someone's home IP is impersonation), and no browser impersonation. Jobstreet
+      stays off regardless — its block restates its robots.txt rather than
+      contradicting it.
 
       **This one is worth doing, and it is not the same question as Jobstreet.**
       onlinejobs.ph's `robots.txt` allows the job-search pages and asks for
@@ -117,7 +136,7 @@ Working state as of 2026-09-07. **Running continuously** on the VPS
       nothing is filtered by it") holds. `dryrun_seen_skip.py` proves that offline
       with a stubbed client, asserting on requests made rather than on a log line.
 
-- [ ] **Back up `data/jobs.db` off the droplet.** It now holds the only record of
+- [ ] **Back up `data/jobs.db`.** It now holds the only record of
       which jobs have been seen, which emails are processed, and which
       applications the boards have confirmed. Losing it re-alerts everything and
       loses the applied history. Nothing backs it up today.
@@ -125,10 +144,11 @@ Working state as of 2026-09-07. **Running continuously** on the VPS
 - [x] ~~VPS `config.yaml` has `first_run_lookback_days: 2`~~ — moot; the database
       moved across populated, so no backfill was triggered.
 
-- [ ] The VPS `config.yaml` deliberately DIFFERS from the local one: `jobstreet_api`
-      and `onlinejobs_ph` are both `enabled: false` there. Backed up as
-      `config.yaml.bak`. Keep them in sync by hand when editing filters, or the
-      two hosts will disagree about what gets dropped.
+- [x] ~~The VPS `config.yaml` deliberately DIFFERS from the local one~~ — **moot
+      2026-09-07.** There is one host now, so there is one config. The local file
+      already had `onlinejobs_ph: true` and `jobstreet_api: false`, which is the
+      wanted state; nothing needed changing. The droplet's copy is left in place
+      untouched in case the move is ever reversed.
 
 ## Filtering & alerts (done 2026-08-28)
 

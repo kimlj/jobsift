@@ -165,6 +165,33 @@ somebody else's home IPs to appear to be a home user is impersonation, and it is
 what gets a block widened for everyone. Egressing through *your own* connection
 is defensible; buying a disguise is not.
 
+**Resolved 2026-09-07 by moving the host, not by tunnelling.** Egressing through
+your own connection was scoped properly first: Tailscale to link the droplet to a
+machine at home, and a per-source proxy so only onlinejobs.ph took that path rather
+than a full exit node, which would have sent the LLM and IMAP traffic through a
+house too. It works. It was still rejected, because every version of it needs a
+machine at home to be switched on, which is the same requirement as simply running
+the pipeline there, with a tunnel, a proxy service and a second config on top. When
+the workaround's precondition is identical to the simple answer's, the workaround is
+not buying anything.
+
+So the whole pipeline runs at home now. The honest cost is that it only runs while
+that machine is on.
+
+**The uptime that costs is smaller than it looks, and it is not a hardware
+question.** Measured over the 108 stored onlinejobs.ph rows, 41% were posted
+between 11pm and 8am — real flow, in the window a laptop is typically shut. The
+obvious reading is that a small always-on box would catch them. It would not catch
+anything actionable: this program alerts, and a person applies. An alert delivered
+at 3am is read at 8am, which is when the same job would surface on a laptop that
+starts at 8am. The overnight 41% is the size of the prize an **applier** would
+unlock, not a Raspberry Pi. Buy uptime only after something can act on it.
+
+(The posting timestamps are stored, under `timestamp` rather than `posted` —
+`_build_record` fills that field from the board's own date, falling back to now.
+Searching the stored rows for a key called `posted` finds nothing and invites the
+wrong conclusion.)
+
 **`scored_on` is in the sheet because a score and the evidence behind it are read
 together or not at all.** 50 of the first 119 rows at 60+ were scored on a
 snippet or the title alone, and an 89 from a title looked exactly like an 89 from

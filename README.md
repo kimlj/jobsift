@@ -104,7 +104,8 @@ full job text: alert emails carry a truncated snippet, and the module needs the
 whole posting because employers bury compliance instructions ("start your message
 with the word PURPLE") in the last lines to catch people who skimmed.
 
-Full deployment (systemd / cron on a VPS) → [docs/deploy.md](docs/deploy.md).
+Full deployment — systemd, Windows Task Scheduler or cron, and how the host you
+pick decides which sources you can have → [docs/deploy.md](docs/deploy.md).
 Which boards to subscribe to → [docs/job-alert-sources.md](docs/job-alert-sources.md).
 Why something is built the way it is → [docs/decisions.md](docs/decisions.md).
 
@@ -145,9 +146,10 @@ hostile by default.
 
 **URLs.** `enrich` follows a link that arrived in an email, and `classify` accepts
 mail on a subject keyword alone ("job alert", "hiring") — so the sender does not
-have to be a board we know to pick a URL for this program to fetch. On a VPS that
-reaches anything the box can reach: `http://127.0.0.1:8080/admin`, the cloud
-metadata endpoint at `169.254.169.254`, a database admin page. `safefetch.py`
+have to be a board we know to pick a URL for this program to fetch. That reaches
+anything the host can reach: `http://127.0.0.1:8080/admin`, the cloud
+metadata endpoint at `169.254.169.254`, a database admin page — and on a machine at
+home, everything else on the LAN, including the router's admin page. `safefetch.py`
 answers with four rules: HTTPS only; every resolved address must be public (one
 private address among several is a rejection, not a fallback); the request goes to
 the **validated IP** with `Host` and TLS SNI set to the original hostname, so
