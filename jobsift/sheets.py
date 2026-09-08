@@ -405,6 +405,34 @@ class SheetWriter:
             return self.ws
         return self.ws if score >= self.threshold else self.ws_below
 
+    def _has_validation(self, ws, column: int) -> bool:
+        """Does row 2 of this column already carry a data validation rule?
+
+        Asked so `_setup` can leave an existing dropdown alone. The chip style -
+        the rounded pill, with a colour per value - can only be made from the
+        Sheets UI under Insert > Dropdown. The v4 API reports one back as an
+        ordinary ONE_OF_LIST, identical field for field to the rule this program
+        writes, so it cannot be told apart afterwards and cannot be recreated.
+        What it CAN do is not destroy it: without this check, every run would
+        overwrite a hand-made chip dropdown with a plain one, and the loss would
+        look like Sheets forgetting rather than like us doing it.
+
+        Unreadable is treated as present, because writing over something we
+        could not see is the failure this exists to prevent.
+        """
+        letter = _a1(column)
+        try:
+            meta = self.spreadsheet.fetch_sheet_metadata(
+                {"includeGridData": True, "ranges": [f"'{ws.title}'!{letter}2:{letter}2"]})
+            rows = meta["sheets"][0]["data"][0].get("rowData", [])
+            if not rows:
+                return False
+            values = rows[0].get("values", [])
+            return bool(values and values[0].get("dataValidation"))
+        except Exception as err:
+            logger.warning("could not read validation on %s: %s", ws.title, err)
+            return True
+
     def _stage_colour_requests(self, ws, column: int) -> list:
         """Conditional formatting for the stage column, one rule per value.
 
@@ -499,14 +527,15 @@ class SheetWriter:
             # their own word into their own column; the closed set of six is
             # worth more than that freedom.
             column = headers.index("stage")
-            requests.append({"setDataValidation": {
-                "range": {"sheetId": ws.id, "startRowIndex": 1,
-                          "endRowIndex": 5000,
-                          "startColumnIndex": column,
-                          "endColumnIndex": column + 1},
-                "rule": {"condition": {"type": "ONE_OF_LIST",
-                                       "values": [{"userEnteredValue": v} for v in STAGES]},
-                         "showCustomUi": True, "strict": True}}})
+            if not self._has_validation(ws, column):
+                requests.append({"setDataValidation": {
+                    "range": {"sheetId": ws.id, "startRowIndex": 1,
+                              "endRowIndex": 5000,
+                              "startColumnIndex": column,
+                              "endColumnIndex": column + 1},
+                    "rule": {"condition": {"type": "ONE_OF_LIST",
+                                           "values": [{"userEnteredValue": v} for v in STAGES]},
+                             "showCustomUi": True, "strict": True}}})
             requests += self._stage_colour_requests(ws, column)
         if "salary" in headers:
             # As-written salaries are text, but Sheets reads a bare "1500" as a

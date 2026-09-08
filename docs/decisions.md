@@ -424,7 +424,20 @@ in DESCENDING index order, because the rules are a list and each delete
 renumbers everything after it. Rules on other columns are left alone: they are
 not ours to remove.
 
-**`strict: True` is what draws the chips.** A ONE_OF_LIST validation renders as
+**The chip style cannot be made from the API, and `_setup` must not destroy
+one.** The rounded pill with a colour per value comes only from the Sheets UI,
+Insert > Dropdown. Proved by elimination rather than assumed: with both columns
+set strict, a full cell dump of a hand-made chip dropdown and an API-written one
+came back with the same five top-level keys and a byte-identical
+`dataValidation` - same condition type, same values shape, `strict` and
+`showCustomUi` both true - while only one of them drew chips. Whatever carries
+the style is not exposed on this surface, so it can be neither written nor
+detected. What `_setup` can do is check whether the column already has a rule
+and leave it alone if so, which is now what it does. Unreadable counts as
+present, because overwriting something we could not see is the exact failure the
+check exists to prevent.
+
+**`strict: True` was NOT what drew the chips**, though it is kept anyway. A ONE_OF_LIST validation renders as
 a rounded chip when it is strict and as a bare cell with a small arrow when it
 is not; nothing else in the rule controls it. Found by diffing the `source`
 column, which a person had set up by hand and which was already drawing chips,
