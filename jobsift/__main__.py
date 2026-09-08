@@ -460,11 +460,14 @@ def main() -> None:
         # GmailReader and Store are imported at module level. Importing either
         # here would make the name local to main() and unbind it everywhere else
         # in the function, including the normal run path further down.
-        from .applied import CONFIRMATION_SENDERS, detect, match_to_jobs
+        from .applied import (
+            CONFIRMATION_PHRASES, CONFIRMATION_SENDERS, detect, match_to_jobs,
+        )
         from .export import rows as stored_rows
 
         gmail = GmailReader(config.gmail_address, config.gmail_app_password)
-        messages = gmail.fetch_confirmations(CONFIRMATION_SENDERS, args.scan_applied)
+        messages = gmail.fetch_confirmations(
+            CONFIRMATION_SENDERS, args.scan_applied, phrases=CONFIRMATION_PHRASES)
         confirmations = [c for c in (detect(m) for m in messages) if c]
         print(f"read {len(messages)} message(s), {len(confirmations)} confirmation(s)")
 

@@ -56,13 +56,25 @@ class GmailReader:
                 pass
         return messages
 
-    def fetch_confirmations(self, senders, lookback_days: int = 90) -> list[dict]:
-        """Messages from the boards that send application receipts.
+    def fetch_confirmations(self, senders, lookback_days: int = 90,
+                            phrases=()) -> list[dict]:
+        """Messages that might be application receipts.
 
         Searched per sender rather than over the whole mailbox, so the download
         is a few dozen messages instead of every alert the inbox has ever held —
         and it reads All Mail, because a receipt from three months ago has long
         been archived out of the inbox.
+
+        `phrases` searches by CONTENT instead, which is what reaches an employer
+        whose receipt comes from an ATS or from its own domain. A sender list
+        cannot keep up with those - a role found on one board is confirmed by
+        whichever ATS the employer happens to use - so the phrase is the durable
+        half. Kept narrow and literal for the same reason the rules are phrases
+        rather than keywords: the server is being asked to find sentences only a
+        confirmation contains, and `detect` still has to agree afterwards.
+
+        Results are deduplicated on uid, because a message can answer both a
+        sender search and a phrase search.
         """
         messages: list[dict] = []
         conn = imaplib.IMAP4_SSL(IMAP_HOST)
@@ -73,11 +85,18 @@ class GmailReader:
             except Exception:
                 conn.select("INBOX", readonly=True)
             since = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%d-%b-%Y")
-            for sender in senders:
-                typ, data = conn.uid("search", None, f'(SINCE {since} FROM "{sender}")')
+            queries = [f'(SINCE {since} FROM "{s}")' for s in senders]
+            queries += [f'(SINCE {since} TEXT "{p}")' for p in phrases]
+            seen: set[str] = set()
+            for query in queries:
+                typ, data = conn.uid("search", None, query)
                 if typ != "OK" or not data or not data[0]:
                     continue
                 for uid in data[0].split():
+                    key = uid.decode() if isinstance(uid, bytes) else str(uid)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     typ, msg_data = conn.uid("fetch", uid, "(RFC822)")
                     if typ != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                         continue

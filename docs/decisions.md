@@ -332,3 +332,45 @@ markup - but it does assign `employerId` in an inline script (794885 for Archer
 Wealth, 918549 for Mogul). That is a stable identity the text cannot give: two
 postings by one employer share it whether or not either writes the company down.
 Database and CSV only; it earns no sheet column.
+
+---
+
+## Application receipts
+
+**The receipt does not come from the board you applied through.** Two
+applications made from Working Nomads listings were confirmed by Greenhouse and
+by JazzHR, because Working Nomads hands off to whatever ATS the employer uses
+and only ever mails a newsletter itself. `CONFIRMATION_SENDERS` could never have
+caught either, and no list can: there are dozens of ATS vendors and employers
+also write from their own domains.
+
+**So the ATS rules carry no host and match on phrasing alone.** That is only
+safe because of a property `detect` already had: every pattern demands a phrase
+that only a confirmation contains. "X is still accepting applications" and a job
+titled "Application Engineer" both fail. A rule built on keywords could not be
+turned loose on a whole mailbox; one built on "we received your application for
+X role at Y" can. Measured over two days of a live inbox - 135 messages, most of
+them job alerts - the sender-agnostic rules fired six times and every one was a
+real confirmation.
+
+**`match_to_jobs` is where the safety actually lives.** A phrase that matched on
+any sender only ticks something if the employer it names is already a stored
+job, and only if exactly one of them is. The same "only when unambiguous" rule
+that already guarded title-only confirmations now guards company-only ones.
+
+**Company-only confirmations had to become legal.** JazzHR's subject is "Kim,
+we've received your resume" and names no job anywhere; the body says only
+"Thank you for your interest in joining Bamboo Works." `detect` used to end with
+`if not title: continue`, which would have thrown that away after matching it.
+
+**Short company names need the sender's domain to agree.** Of 190 stored
+companies, 17 normalise to a single word of six characters or less - "atos",
+"quora", "sgs" - and those turn up in mail having nothing to do with an
+application. A longer or multi-word name is distinctive enough to stand alone.
+
+**`--scan-applied` searches by phrase as well as by sender.** Its 90-day reach
+over All Mail is why the sender list still exists at all: it keeps the download
+to a few dozen messages. A host-less rule has no sender to search on, so the
+phrase is what finds it. These only decide what is DOWNLOADED - `detect` still
+has to match and `match_to_jobs` still has to find the job - so a loose phrase
+costs bandwidth, not a wrong tick.
