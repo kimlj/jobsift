@@ -374,3 +374,43 @@ to a few dozen messages. A host-less rule has no sender to search on, so the
 phrase is what finds it. These only decide what is DOWNLOADED - `detect` still
 has to match and `match_to_jobs` still has to find the job - so a loose phrase
 costs bandwidth, not a wrong tick.
+
+---
+
+## The stage column
+
+**`applied` became a dropdown called `stage`.** A tick could not tell "not
+looked at" from "want this" from "no thanks", and all three were false. Six
+values, ordered as the funnel runs: New, To apply, Applied, Interviewing,
+Rejected, Ignore. Rejected and Interviewing are the two that keep the column
+useful past a month - without them Applied accumulates and a live application
+looks exactly like a dead one.
+
+**It is `stage`, not `status`, because `status` was taken.** The program already
+writes a `status` column, "new" on every row and "delisted" since the Closed
+tab. Two columns of that name is the sheet disagreeing with itself, and renaming
+the program's one would have been a second migration for no gain.
+
+**`mark_applied` advances only, out of STAGE_ADVANCEABLE.** Ignore means the user
+decided against it; Interviewing and Rejected are further down the funnel than a
+receipt can see. Writing Applied over any of them replaces something they know
+with something we inferred. This is the dropdown form of the old rule that a tick
+was never cleared: a board confirms an application and never its absence.
+
+**`_migrate_renames` runs before the unknown-column guard**, and has to. An
+existing sheet still says `applied`, which `_migrate_headers` cannot place, so it
+would refuse the whole tab on every run and the upgrade would never arrive for
+exactly the people who already have data. TRUE becomes Applied and everything
+else becomes New, because an unticked row never meant rejected, only that no
+receipt had been seen. The boolean validation is cleared in the same batch or the
+sheet refuses words written into a column still expecting a checkbox.
+
+**The conversion is bounded by rows holding a JOB, not by what the column
+returns.** Under tick-box validation every cell in that column exists as far as
+the API is concerned, which is the same reason `_next_row` reads job_title rather
+than asking for the end of the table. The first run of this wrote "New" into 999
+empty rows of the Closed tab, a tab holding two.
+
+**Nothing here needs a manual step.** A new sheet is created with `stage` and
+gets the dropdown from `_setup`; an existing one is converted on the next run,
+the same way every other column change has shipped.

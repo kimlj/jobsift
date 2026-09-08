@@ -10,6 +10,28 @@ from .utils import hyperlink
 logger = logging.getLogger(__name__)
 
 # Column order for the sheet (also the header row).
+# The user's funnel position for a row. Ordered as the funnel runs, because the
+# dropdown shows them in this order and reading it top to bottom should be the
+# life of an application.
+STAGES = ["New", "To apply", "Applied", "Interviewing", "Rejected", "Ignore"]
+STAGE_DEFAULT = "New"
+
+# Stages the program may overwrite when a receipt arrives. Everything else is a
+# decision the user made by hand and knows more about than we do: a receipt
+# landing on a row marked Ignore means either they applied and changed their
+# mind, or the match was wrong, and writing over it is the wrong answer to both.
+# This is the dropdown form of the old rule that a tick was never cleared.
+STAGE_ADVANCEABLE = {"", STAGE_DEFAULT, "To apply"}
+
+# Stages that mean an application went in. Read by --skip-applied and by the
+# receipt scanner, so a job already sent is not offered again.
+STAGE_SENT = {"Applied", "Interviewing", "Rejected"}
+
+# Renamed columns, old -> new. Checked BEFORE the unknown-column guard in
+# _migrate_headers, which would otherwise see the old name, decide it cannot be
+# placed, and leave the tab frozen on the previous version forever.
+_RENAMED = {"applied": "stage"}
+
 HEADERS = [
     # Same leading order as the CSV export: the columns you decide on, first.
     # Both outputs answer "is this worth opening" and they had drifted apart —
@@ -18,11 +40,13 @@ HEADERS = [
     # url is beside company because the sheet is scanned and clicked down. Sheets
     # auto-links a bare URL under USER_ENTERED, so unlike the CSV this needs no
     # HYPERLINK formula.
-    # "applied" is yours, not the program's. It is written FALSE on every new row
-    # and never read back, so it can be turned into a tickbox column and frozen at
-    # column A. It exists because append_row writes from column A outward: a
-    # checkbox you added there yourself would be overwritten by the next row.
-    "applied",
+    # "stage" is yours, not the program's. Every new row is written as New and
+    # the program only ever advances it to Applied, so it can carry a dropdown
+    # and stay frozen at column A. It sits there because append_row writes from
+    # column A outward: a column you added yourself would be overwritten by the
+    # next row. It was a tickbox called `applied` until a tick could not tell
+    # "not looked at" from "want this" from "no thanks".
+    "stage",
     # Tick this and the next pass drafts an application for the row: cover letter,
     # employer answers, tailored resume, into the Drafts tab. Yours to set, like
     # `applied` - the program only ever reads it, and it costs one model call per
@@ -87,8 +111,10 @@ def _cell(header: str, record: dict) -> str:
     """One cell. `applied` is the user's tickbox, so it goes out as FALSE rather
     than empty — an empty cell under tickbox validation reads as blank, a FALSE
     reads as unticked. `url` gets the narrow clickable form; see utils.hyperlink."""
-    if header in ("applied", "draft"):
+    if header == "draft":
         return "FALSE"
+    if header == "stage":
+        return STAGE_DEFAULT
     if header == "scored_on":
         # Composed rather than stored: the record carries the two halves and this
         # is the one place they are read as a sentence.
@@ -184,6 +210,7 @@ class SheetWriter:
         # empty, and a tab that skipped its header silently writes every later
         # row one column off nothing and looks blank at the top.
         current = ws.row_values(1)
+        current = self._migrate_renames(ws, current)
         if current != headers:
             if not self._migrate_headers(ws, current, headers):
                 return ws
@@ -191,6 +218,66 @@ class SheetWriter:
 
         self._setup(ws, headers, tickbox, clip)
         return ws
+
+    def _migrate_renames(self, ws, current: list) -> list:
+        """Rename columns this version renamed, converting their values first.
+
+        This has to run BEFORE `_migrate_headers`, which refuses a tab holding
+        any column it does not know. An existing sheet still says `applied`, so
+        without this the guard would fire on every run, log a warning, and leave
+        the tab frozen on the previous version forever - the upgrade would never
+        arrive for exactly the people who already have data.
+
+        `applied` was a tick box: TRUE became Applied, and everything else
+        becomes New rather than empty, because an unticked row never meant
+        "rejected", only "no receipt has been seen for this". The boolean
+        validation is cleared in the same batch, or the sheet refuses the words
+        being written into a column still expecting a checkbox. `_setup` puts
+        the dropdown on afterwards.
+
+        Returns the header list as it now stands, so the caller carries on with
+        what the sheet actually holds rather than what it held a moment ago.
+        """
+        renames = [(old, new) for old, new in _RENAMED.items() if old in current]
+        if not renames:
+            return current
+
+        updated = list(current)
+        for old, new in renames:
+            index = updated.index(old)
+            letter = _a1(index)
+            # Bounded by the rows that hold a JOB, not by what the column
+            # returns. Under the tick-box validation every cell in this column
+            # exists as far as the API is concerned, so col_values comes back
+            # 1000 long on a tab holding two rows - the same reason `_next_row`
+            # reads job_title instead of asking for the end of the table. The
+            # first run of this wrote "New" into 999 empty rows of the Closed
+            # tab before that was caught.
+            try:
+                last = self._next_row(ws) - 1
+                values = ws.col_values(index + 1)[1:last] if last > 1 else []
+            except Exception as err:
+                logger.warning("could not read %s on %s: %s", old, ws.title, err)
+                return current
+
+            self.spreadsheet.batch_update({"requests": [{"setDataValidation": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": 5000,
+                          "startColumnIndex": index, "endColumnIndex": index + 1}}}]})
+
+            if old == "applied":
+                converted = [
+                    ["Applied" if str(v).strip().upper() in ("TRUE", "1", "YES")
+                     else STAGE_DEFAULT]
+                    for v in values
+                ]
+                if converted:
+                    ws.update(converted, f"{letter}2:{letter}{len(converted) + 1}",
+                              value_input_option="USER_ENTERED")
+            ws.update([[new]], f"{letter}1", value_input_option="RAW")
+            updated[index] = new
+            logger.info("%s: %s -> %s (%d row(s) converted)",
+                        ws.title, old, new, len(values))
+        return updated
 
     def _migrate_headers(self, ws, current: list, headers: list) -> bool:
         """Bring an existing tab's columns to `headers`, data and all.
@@ -258,10 +345,10 @@ class SheetWriter:
         the person who has been running it for a month sees a sheet half in each
         version, which is worse than either.
 
-        `applied`, `draft` and `draft_status` are skipped. The first two are the
+        `stage`, `draft` and `draft_status` are skipped. The first two are the
         user's, and the third describes work in flight.
         """
-        mine = {"applied", "draft", "draft_status"}
+        mine = {"stage", "draft", "draft_status"}
         writable = [(i, h) for i, h in enumerate(HEADERS) if h not in mine]
         total = 0
         for ws in self._tabs():
@@ -299,7 +386,7 @@ class SheetWriter:
                clip: bool = False) -> None:
         """Make a tab usable without anyone opening a menu.
 
-        Tick boxes on the applied column, a frozen header row and applied
+        A stage dropdown and a draft tick box, a frozen header row and first
         column, and a filter on row 1 so it can be sorted by score. All of it
         is idempotent — re-applying the same validation and freeze is a no-op,
         and a basic filter that already exists is left alone.
@@ -311,14 +398,26 @@ class SheetWriter:
         url_col = headers.index("url")
         requests = []
         if tickbox:
-            for name in ("applied", "draft"):
-                column = headers.index(name)
-                requests.append({"setDataValidation": {
-                    "range": {"sheetId": ws.id, "startRowIndex": 1,
-                              "endRowIndex": 5000,
-                              "startColumnIndex": column,
-                              "endColumnIndex": column + 1},
-                    "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
+            column = headers.index("draft")
+            requests.append({"setDataValidation": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1,
+                          "endRowIndex": 5000,
+                          "startColumnIndex": column,
+                          "endColumnIndex": column + 1},
+                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
+            # stage is a dropdown, not a tick. strict=False on purpose: a
+            # rejected edit is a dialog the user has to dismiss, and somebody
+            # typing their own word into their own column should get a warning
+            # triangle, not a fight with the sheet.
+            column = headers.index("stage")
+            requests.append({"setDataValidation": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1,
+                          "endRowIndex": 5000,
+                          "startColumnIndex": column,
+                          "endColumnIndex": column + 1},
+                "rule": {"condition": {"type": "ONE_OF_LIST",
+                                       "values": [{"userEnteredValue": v} for v in STAGES]},
+                         "showCustomUi": True, "strict": False}}})
         if "salary" in headers:
             # As-written salaries are text, but Sheets reads a bare "1500" as a
             # number and right-aligns it, so the column comes out ragged: "$17/hr"
@@ -396,7 +495,11 @@ class SheetWriter:
         return [w for w in (self.ws, self.ws_below) if w is not None]
 
     def applied_urls(self) -> set[str]:
-        """The urls of jobs ticked as applied, across both tabs.
+        """The urls of jobs whose stage says an application went in, both tabs.
+
+        Interviewing and Rejected count as sent: both are states you can only
+        reach by having applied, and a job already sent should not be offered
+        back as though it were new.
 
         Both, because a job worth applying to may well be one the scorer put
         below the bar — that is the case the second tab exists for.
@@ -407,7 +510,7 @@ class SheetWriter:
         """
         import re
 
-        applied_col = HEADERS.index("applied")
+        applied_col = HEADERS.index("stage")
         url_col = HEADERS.index("url")
         out: set[str] = set()
 
@@ -417,11 +520,14 @@ class SheetWriter:
                 formulas = ws.col_values(
                     url_col + 1, value_render_option="FORMULA")[1:]
             except Exception as err:
-                logger.warning("could not read applied column on %s: %s", ws.title, err)
+                logger.warning("could not read stage column on %s: %s", ws.title, err)
                 continue
 
             for flag, cell in zip(flags, formulas):
-                if str(flag).strip().upper() not in ("TRUE", "1", "YES"):
+                value = str(flag).strip()
+                # TRUE is still honoured: a sheet mid-migration, or one whose
+                # rename could not run, still holds the old tick.
+                if value not in STAGE_SENT and value.upper() not in ("TRUE", "1", "YES"):
                     continue
                 match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
                 url = match.group(1) if match else str(cell).strip()
@@ -448,30 +554,52 @@ class SheetWriter:
         return out
 
     def mark_applied(self, urls) -> int:
-        """Tick the applied box on every row whose url is in `urls`.
+        """Move rows whose url is in `urls` to the Applied stage.
 
-        Only ever writes TRUE. An unticked row is not evidence of anything —
-        the boards confirm applications, they do not confirm the absence of one —
-        so a row the user ticked by hand is never cleared by this.
+        ADVANCES ONLY, and only out of STAGE_ADVANCEABLE. A row the user has
+        moved on by hand is left where they put it: Ignore means they decided
+        against it, and Interviewing or Rejected are further down the funnel
+        than a receipt can see. Writing Applied over any of those would replace
+        something they know with something we inferred.
+
+        This is the dropdown form of the old rule. The tick was never cleared
+        because a board confirms an application and never its absence; the stage
+        is never rewound for the same reason.
         """
         wanted = set(urls)
         if not wanted:
             return 0
-        applied_col = HEADERS.index("applied")
-        letter = _a1(applied_col)
-        ticked = 0
+        stage_col = HEADERS.index("stage")
+        letter = _a1(stage_col)
+        moved = 0
         for ws in self._tabs():
             rows = [row for url, row in self._url_rows(ws).items() if url in wanted]
             if not rows:
                 continue
             try:
-                ws.batch_update([
-                    {"range": f"{letter}{row}", "values": [["TRUE"]]} for row in sorted(rows)
-                ], value_input_option="USER_ENTERED")
-                ticked += len(rows)
+                column = ws.col_values(stage_col + 1)
             except Exception as err:
-                logger.warning("could not tick applied on %s: %s", ws.title, err)
-        return ticked
+                logger.warning("could not read stage on %s: %s", ws.title, err)
+                continue
+            updates = []
+            for row in sorted(rows):
+                # col_values is a 0-based list over a 1-based sheet, and comes
+                # back short when the trailing cells are empty.
+                now = column[row - 1].strip() if row - 1 <= len(column) - 1 else ""
+                if now.upper() in ("TRUE", "1", "YES"):
+                    continue  # a pre-migration tick: already applied
+                if now not in STAGE_ADVANCEABLE:
+                    logger.info("%s row %d left at %r", ws.title, row, now)
+                    continue
+                updates.append({"range": f"{letter}{row}", "values": [["Applied"]]})
+            if not updates:
+                continue
+            try:
+                ws.batch_update(updates, value_input_option="USER_ENTERED")
+                moved += len(updates)
+            except Exception as err:
+                logger.warning("could not set stage on %s: %s", ws.title, err)
+        return moved
 
     def _closed_tab(self):
         """The Closed tab, made on first use. None when the feature is off."""

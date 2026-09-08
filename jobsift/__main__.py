@@ -280,7 +280,7 @@ def main() -> None:
              "version's columns and formatting. Free - no model calls. Run it after "
              "upgrading: new rows are written correctly anyway, but rows already in "
              "the sheet keep whatever the version that wrote them produced. Your "
-             "applied and draft ticks are not touched.",
+             "your stage and draft columns are not touched.",
     )
     parser.add_argument(
         "--scan-applied",
@@ -295,9 +295,10 @@ def main() -> None:
     parser.add_argument(
         "--skip-applied",
         action="store_true",
-        help="With --export or --backfill-sheet: drop jobs ticked applied in the "
-             "Google Sheet. The tick is yours and the program never writes it, so "
-             "this is the one place the sheet is read back.",
+        help="With --export or --backfill-sheet: drop jobs whose stage in the "
+             "Google Sheet says an application went in (Applied, Interviewing or "
+             "Rejected). The column is yours and the program only ever advances it "
+             "to Applied, so this is the one place the sheet is read back.",
     )
     parser.add_argument(
         "--backfill-sheet",
