@@ -1,6 +1,6 @@
 # TODO
 
-Working state as of 2026-09-07. **Running on the laptop** under a Windows Task
+Working state as of 2026-09-08. **Running on the laptop** under a Windows Task
 Scheduler job (`jobsift`, triggered at logon) that starts `run-jobsift.ps1`, which
 runs the program's own 300s loop. Watch it with
 `Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
@@ -175,6 +175,48 @@ The droplet itself stays: WordWarz, MDS Pro, Casinore and SendIt all run on it, 
       `resolve_redirects: false` flag to keep links on the non-registered
       url.jobstreet.com host, at the cost of 286-char URLs.
 - [x] usd_to_php and salary_baseline_php moved out of code into config.
+
+## The sheet's stage column (shipped 2026-09-08)
+
+The `applied` tick box became a dropdown called `stage`, and a row can now be filed off
+the shortlist on purpose. Full reasoning in `docs/decisions.md` under *The stage column*
+and *Closing a row by hand*; this is the operational half.
+
+Seven values: New, To apply, Applied, Interviewing, Rejected, Ignore, Closed. The first
+six describe where a row stands. **Closed is the only one that is also an instruction:**
+setting it moves the row into the Closed tab on the next pass (300s), the same way the
+draft tick is served. `--sweep-closed` does it on demand. The moved row's `status` cell
+says `closed`, not `delisted`, because delisted is the crawler's finding that a posting
+left its board and this one may still be up.
+
+- [x] `sweep_closed()` runs at the top of every pass, before the draft server, so a row
+      staged Closed with the draft box ticked is not drafted on its way out.
+- [x] `existing_urls()` now reads the Closed tab too. This was a live bug that predates
+      the feature: `--backfill-sheet` reads the whole database, so without it one
+      backfill put back onto the shortlist exactly the rows that had been taken off it,
+      delisted ones included.
+- [x] `dryrun_closed.py` covers it offline against fake worksheets. No network, no
+      service account. Added to CONTRIBUTING's start-here list.
+- [x] Verified live 2026-09-08: one staged row moved Shortlist to Closed on the first
+      pass after restart, link and ticks intact, `status` restated to `closed`.
+
+**This is the one column change that does NOT ship itself, and a new tab will need the
+same edit.** The stage dropdown was made by hand in the Sheets UI, which is the only kind
+that draws chips, so `_setup` deliberately leaves an existing rule alone rather than
+flattening it. A stage added by a later version therefore cannot reach it. `_setup` now
+logs which values are missing, by name and per tab. Adding one is Data > Data validation,
+or copy cell A2 and Paste special > Data validation only onto the other tabs.
+
+- [x] `Closed` added by hand to all three tabs (Shortlist, Below the bar, Closed),
+      confirmed 2026-09-08.
+- [ ] Two of those dropdowns picked up a stray `stage` value, from a copy that included
+      the header row. Harmless: no code path matches it, `STAGE_COLOURS` has no entry so
+      it renders uncoloured, and `mark_applied` would leave such a row alone and log it.
+      It only clutters the picker. One edit each to remove.
+- [ ] The Closed tab reports 999 rows: the empty ones hold a `FALSE` in the `draft`
+      column, residue from the tick-box validation being written across the grid before
+      the row-bounding fix (see `_migrate_renames`). Harmless, because `_next_row` reads
+      `job_title`, but the tab looks full of blank checkboxes.
 
 ## Dedup key (normalised 2026-09-01)
 
