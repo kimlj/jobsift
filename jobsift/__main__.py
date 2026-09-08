@@ -343,6 +343,14 @@ def main() -> None:
              "takes about two minutes. Applied jobs and ones already marked are "
              "skipped. Defaults to 25.",
     )
+    parser.add_argument(
+        "--sweep-closed",
+        action="store_true",
+        help="Move every sheet row whose stage says Closed into the Closed tab, "
+             "now. Free - two column reads and one move, no board touched and no "
+             "model call. The running loop already does this once a pass; this is "
+             "for when you have just filed a row and would rather not wait.",
+    )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--env", default=".env", help="Path to .env")
     args = parser.parse_args()
@@ -455,6 +463,17 @@ def main() -> None:
             writer = SheetWriter(config.google_sheet, config.score_threshold)
             moved = writer.move_to_closed(gone_urls)
             print(f"moved {moved} row(s) to the {writer.closed_title!r} tab")
+        return
+
+    if args.sweep_closed:
+        if not config.google_sheet.enabled:
+            raise SystemExit("google_sheet.enabled is false in config - there is no "
+                             "sheet to sweep.")
+        from .sheets import SheetWriter
+
+        writer = SheetWriter(config.google_sheet, config.score_threshold)
+        moved = writer.sweep_closed()
+        print(f"moved {moved} row(s) to the {writer.closed_title!r} tab")
         return
 
     if args.scan_applied:
@@ -574,10 +593,26 @@ def main() -> None:
 
     while True:
         try:
-            # Before the pass rather than after it. A pass spends minutes in
-            # the scrape sources - onlinejobs.ph is paced to its robots.txt
-            # Crawl-delay, about five seconds a page - and a tick sitting behind
-            # all of that is indistinguishable from a tick that did nothing.
+            # Both of these read cells the user edited, and both run before the
+            # pass rather than after it. A pass spends minutes in the scrape
+            # sources - onlinejobs.ph is paced to its robots.txt Crawl-delay,
+            # about five seconds a page - and an edit sitting behind all of that
+            # is indistinguishable from an edit that did nothing.
+            #
+            # Closed before drafts. A row staged Closed with the draft box still
+            # ticked would otherwise be drafted on its way out: a model call
+            # spent on the one job the user has just said they are done with.
+            try:
+                if sheet is not None:
+                    filed = sheet.sweep_closed()
+                    if filed:
+                        log.info("Filed %d row(s) staged Closed into the %s tab",
+                                 filed, sheet.closed_title)
+            except Exception:
+                # Same rule as the drafts below: the sheet is an optional output
+                # and nothing in it may stop the inbox being read.
+                log.exception("Filing rows staged Closed failed; continuing")
+
             try:
                 _serve_sheet_drafts(args, config, llm, sheet, resume)
             except Exception:

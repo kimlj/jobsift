@@ -384,7 +384,7 @@ looked at" from "want this" from "no thanks", and all three were false. Six
 values, ordered as the funnel runs: New, To apply, Applied, Interviewing,
 Rejected, Ignore. Rejected and Interviewing are the two that keep the column
 useful past a month - without them Applied accumulates and a live application
-looks exactly like a dead one.
+looks exactly like a dead one. A seventh, Closed, was added later; it is below.
 
 **It is `stage`, not `status`, because `status` was taken.** The program already
 writes a `status` column, "new" on every row and "delisted" since the Closed
@@ -449,3 +449,66 @@ drop a row out of STAGE_SENT and offer back a job already sent.
 **If the rules cannot be read, no colour is written.** Adding blind is precisely
 how the stack happens, and a colourless column is a much smaller problem than
 sixty rules nobody asked for.
+
+---
+
+## Closing a row by hand
+
+**Closed is a stage, and setting it moves the row.** The Closed tab already
+existed, filled by the crawler when a posting left its board, and a row the user
+was simply finished with had nowhere to go: Rejected and Ignore are honest about
+what happened but leave the row on the shortlist forever, so the list only ever
+grew. Making Closed a seventh stage rather than a new tick box or a second tab
+puts the decision in the column the row is already triaged in, and reuses the
+move the crawler's half already does.
+
+**It is the only stage that is also an instruction.** Every other value
+describes where a row stands and nothing happens because of it; this one asks
+for the row to be filed. That is why it sits last rather than beside Rejected
+and Ignore - it is not a funnel position at all, and a job can be closed out of
+any of them, including Interviewing.
+
+**Polled once a pass, like the draft tick.** A sheet cannot call anything. The
+sweep runs at the top of the loop, so an edit is answered within one interval
+rather than behind the minutes a pass spends at onlinejobs.ph's five-second
+Crawl-delay - the same reasoning that put the draft server there. It runs BEFORE
+the draft server, so a row staged Closed with the draft box still ticked is not
+drafted on its way out; that is a model call spent on the one job the user has
+just said they are done with. `--sweep-closed` does the same thing on demand,
+for when waiting out the interval is worse than opening a terminal.
+
+**The moved row's `status` says `closed`, not `delisted`.** Delisted is the
+crawler's finding that a posting has left its board. A hand-filed row's posting
+may well still be up; what ended was the user's interest in it. Filing a decision
+under a finding would leave the tab unable to say which of the two happened, so
+`move_to_closed` takes the word from its caller.
+
+**The stage cell is not written back.** It already says Closed, and it goes on
+saying Closed in the tab it lands in. Rewriting it would be the program editing
+the column it promised only to read, and the row would arrive unable to explain
+why it is there.
+
+**The comparison is exact, with no case folding.** The dropdown is strict, so the
+value came out of the list or it came out of a paste. "closed" is not the stage
+and neither is "Not closed yet", and a substring match would have taken both.
+
+**`existing_urls` had to learn about the Closed tab.** It answers "what does the
+sheet already hold" for `--backfill-sheet`, which reads the whole database every
+time - and a closed row is still in the database. Reading only the two job tabs
+meant one backfill put back onto the shortlist exactly the rows that had been
+taken off it, hand-filed and delisted alike. Its url column is found from that
+tab's own header row rather than from HEADERS, because this reads the tab without
+migrating it and an older one may still be a column short. It also uses a
+non-creating lookup: a caller that only wants to READ the tab must not be the
+reason an empty one appears.
+
+**This one DOES need a manual step, and says so.** Every previous column change
+reached an existing sheet on the next run. This one cannot: the stage dropdown on
+this sheet was made by hand, that is the only kind that draws chips, and `_setup`
+deliberately leaves an existing rule alone rather than flattening it. So a stage
+added by a later version cannot reach it - and the symptom, Sheets refusing the
+very word the program is asking for, reads as a bug rather than as one menu to
+open. `_existing_dropdown` therefore returns the values the existing rule offers
+alongside whether there is one, and `_setup` logs which stages are missing by
+name. Adding Closed under Data > Data validation is a one-time edit; a new sheet
+gets all seven from `_setup` and needs nothing.

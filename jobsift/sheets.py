@@ -13,15 +13,25 @@ logger = logging.getLogger(__name__)
 # The user's funnel position for a row. Ordered as the funnel runs, because the
 # dropdown shows them in this order and reading it top to bottom should be the
 # life of an application.
-STAGES = ["New", "To apply", "Applied", "Interviewing", "Rejected", "Ignore"]
+STAGES = ["New", "To apply", "Applied", "Interviewing", "Rejected", "Ignore",
+          "Closed"]
 STAGE_DEFAULT = "New"
+
+# The one stage that is also an instruction. Every other value describes where a
+# row stands; this one asks for the row to be filed, and the next pass moves it
+# into the Closed tab. It sits last rather than beside the other two dead ends
+# because it is not a funnel position at all - a job can be closed out of any of
+# them, including Interviewing.
+STAGE_CLOSED = "Closed"
 
 # Background and text for each stage, as "#rrggbb". Chosen so the column can be
 # read down at a glance rather than word by word: Interviewing is the only one
 # that should catch the eye across a screenful, To apply is the one asking for
 # an action, and the two dead ends are drained of colour on purpose - Rejected
 # because it is over, Ignore because you already decided. New is nearly white so
-# an untriaged row reads as background rather than as a state.
+# an untriaged row reads as background rather than as a state. Closed is drained
+# too but in a different hue, because a row filed away and a row ignored in place
+# are different answers and the Closed tab holds both.
 STAGE_COLOURS = {
     "New":          ("#F8F9FA", "#80868B"),
     "To apply":     ("#FEF7E0", "#B06000"),
@@ -29,6 +39,7 @@ STAGE_COLOURS = {
     "Interviewing": ("#CEEAD6", "#0D652D"),
     "Rejected":     ("#FCE8E6", "#C5221F"),
     "Ignore":       ("#E8EAED", "#9AA0A6"),
+    "Closed":       ("#EFEBE9", "#8D6E63"),
 }
 
 
@@ -405,8 +416,8 @@ class SheetWriter:
             return self.ws
         return self.ws if score >= self.threshold else self.ws_below
 
-    def _has_validation(self, ws, column: int) -> bool:
-        """Does row 2 of this column already carry a data validation rule?
+    def _existing_dropdown(self, ws, column: int) -> tuple:
+        """(is there a rule on row 2 of this column, which values it offers).
 
         Asked so `_setup` can leave an existing dropdown alone. The chip style -
         the rounded pill, with a colour per value - can only be made from the
@@ -417,8 +428,14 @@ class SheetWriter:
         overwrite a hand-made chip dropdown with a plain one, and the loss would
         look like Sheets forgetting rather than like us doing it.
 
-        Unreadable is treated as present, because writing over something we
-        could not see is the failure this exists to prevent.
+        The offered values come back with it because that protection has a cost:
+        a stage added by a later version cannot reach a hand-made dropdown
+        either, and the symptom - Sheets refusing the very word the program is
+        asking for - reads as a bug rather than as one menu somebody has to open.
+        So the list is compared and the difference is named in the log.
+
+        Unreadable is treated as present with unknown values, because writing
+        over something we could not see is the failure this exists to prevent.
         """
         letter = _a1(column)
         try:
@@ -426,12 +443,17 @@ class SheetWriter:
                 {"includeGridData": True, "ranges": [f"'{ws.title}'!{letter}2:{letter}2"]})
             rows = meta["sheets"][0]["data"][0].get("rowData", [])
             if not rows:
-                return False
+                return False, []
             values = rows[0].get("values", [])
-            return bool(values and values[0].get("dataValidation"))
+            rule = values[0].get("dataValidation") if values else None
+            if not rule:
+                return False, []
+            offered = [str(v.get("userEnteredValue", ""))
+                       for v in rule.get("condition", {}).get("values", [])]
+            return True, offered
         except Exception as err:
             logger.warning("could not read validation on %s: %s", ws.title, err)
-            return True
+            return True, None
 
     def _stage_colour_requests(self, ws, column: int) -> list:
         """Conditional formatting for the stage column, one rule per value.
@@ -524,10 +546,22 @@ class SheetWriter:
             # should have been "Applied" would quietly drop a row out of
             # STAGE_SENT and offer a job back that was already sent. An earlier
             # version used strict=False to avoid arguing with someone typing
-            # their own word into their own column; the closed set of six is
+            # their own word into their own column; the closed set of seven is
             # worth more than that freedom.
             column = headers.index("stage")
-            if not self._has_validation(ws, column):
+            present, offered = self._existing_dropdown(ws, column)
+            if present and offered:
+                missing = [s for s in STAGES if s not in offered]
+                if missing:
+                    # Named, not written. A dropdown made by hand is the only
+                    # kind that draws chips, and replacing it to add one value
+                    # would trade the whole column's readability for it.
+                    logger.warning(
+                        "%s: the stage dropdown does not offer %s - add %s by hand "
+                        "under Data > Data validation, or the sheet will refuse "
+                        "the word", ws.title, ", ".join(missing),
+                        "them" if len(missing) > 1 else "it")
+            if not present:
                 requests.append({"setDataValidation": {
                     "range": {"sheetId": ws.id, "startRowIndex": 1,
                               "endRowIndex": 5000,
@@ -728,8 +762,8 @@ class SheetWriter:
             self.closed_ws = self._tab(self.closed_title)
         return self.closed_ws
 
-    def move_to_closed(self, urls) -> int:
-        """Move rows whose posting has left its board into the Closed tab.
+    def move_to_closed(self, urls, status: str = "delisted") -> int:
+        """Move rows out of the job tabs and into the Closed tab.
 
         Moved, never deleted. The row is a real job that was really scored, and
         your `applied` and `draft` ticks are in it — losing those would relitigate
@@ -746,6 +780,11 @@ class SheetWriter:
         * **Delete from the bottom up.** Removing row 12 renumbers everything
           under it, so deleting ascending would take the wrong rows out from the
           second one onward. `hits` is sorted descending for exactly this.
+
+        `status` is the word the moved row ends up carrying: "delisted" when the
+        crawler found the posting gone from its board, "closed" when the user
+        filed it by hand. The tab holds both and they are not the same event, so
+        the column has to be able to tell them apart afterwards.
 
         Returns how many rows moved.
         """
@@ -781,8 +820,9 @@ class SheetWriter:
                     # The row is copied verbatim so the ticks survive, but its
                     # status was written at ingest and still says "new". A row
                     # filed under Closed that calls itself new is the sheet
-                    # disagreeing with itself, so this one cell is restated.
-                    row[status_col] = "delisted"
+                    # disagreeing with itself, so this one cell is restated -
+                    # with WHY it closed, which is the caller's to say.
+                    row[status_col] = status
                     payload.append(row)
             if not payload:
                 continue
@@ -798,6 +838,61 @@ class SheetWriter:
             logger.info("moved %d closed posting(s) from %s to %s",
                         len(payload), ws.title, target.title)
         return moved
+
+    def _staged_urls(self, stage: str) -> set[str]:
+        """Urls whose stage cell holds exactly `stage`, across both job tabs.
+
+        Exactly, and with no case folding: the dropdown is strict, so the value
+        came out of the list or it came out of a paste, and a near miss is not a
+        stage. The url is read from the HYPERLINK formula for the usual reason -
+        the rendered value is only the word "open".
+        """
+        import re
+
+        stage_col = HEADERS.index("stage")
+        url_col = HEADERS.index("url")
+        out: set[str] = set()
+        for ws in self._tabs():
+            try:
+                stages = ws.col_values(stage_col + 1)[1:]
+                formulas = ws.col_values(
+                    url_col + 1, value_render_option="FORMULA")[1:]
+            except Exception as err:
+                logger.warning("could not read stage column on %s: %s", ws.title, err)
+                continue
+            for value, cell in zip(stages, formulas):
+                if str(value).strip() != stage:
+                    continue
+                match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
+                url = match.group(1) if match else str(cell).strip()
+                if url:
+                    out.add(url)
+        return out
+
+    def sweep_closed(self) -> int:
+        """File every row the user staged Closed into the Closed tab.
+
+        The other half of that tab. `move_to_closed` empties the shortlist of
+        jobs that cannot be applied to any more; this empties it of jobs the user
+        has finished with, which until now had nowhere to go - Rejected and
+        Ignore are honest about a row but leave it on the shortlist forever.
+
+        A sheet cannot call anything, so this is polled once a pass, exactly like
+        the draft tick: set the stage, and within one interval the row is gone.
+        Nothing is written back to the stage cell - it already says Closed, and it
+        goes on saying Closed in the tab it lands in, which is the point of
+        moving the row rather than copying it.
+
+        Returns how many rows moved.
+        """
+        urls = self._staged_urls(STAGE_CLOSED)
+        if not urls:
+            return 0
+        # Not "delisted". That word is the crawler's finding that a posting has
+        # left its board, and this row's posting may well still be up - what
+        # ended was the user's interest in it. Filing a decision under a finding
+        # would leave the tab unable to say which of the two happened.
+        return self.move_to_closed(urls, status="closed")
 
     def _ticked_urls(self, column: str) -> set[str]:
         """Urls whose `column` tickbox is TRUE, across both job tabs."""
@@ -951,21 +1046,47 @@ class SheetWriter:
                 out.add(url)
         return out
 
+    def _existing_closed_tab(self):
+        """The Closed tab if the sheet already has one. Never creates it, unlike
+        `_closed_tab`: a caller that only wants to READ that tab must not be the
+        reason an empty one appears."""
+        if not self.closed_title:
+            return None
+        if self.closed_ws is None:
+            try:
+                self.closed_ws = self.spreadsheet.worksheet(self.closed_title)
+            except Exception:
+                return None
+        return self.closed_ws
+
     def existing_urls(self) -> set[str]:
-        """Every url already in either tab.
+        """Every url already in either job tab, or in the Closed one.
 
         Backfill reads the whole database, so without this a second run writes
         the whole thing again underneath the first. Matching on url rather than
         row count is what makes it re-runnable after the score split moved rows
         or after the threshold changed.
+
+        The Closed tab counts because a row in it is still in the database: left
+        out, one backfill puts back onto the shortlist exactly the jobs that were
+        taken off it, delisted and hand-filed alike. Its url column is located
+        from its own header row rather than from HEADERS, because this reads that
+        tab without migrating it and an older one may still be a column short.
         """
         import re
 
-        url_col = HEADERS.index("url")
-        out: set[str] = set()
-        for ws in self._tabs():
+        tabs = [(ws, HEADERS.index("url")) for ws in self._tabs()]
+        closed = self._existing_closed_tab()
+        if closed is not None:
             try:
-                cells = ws.col_values(url_col + 1, value_render_option="FORMULA")[1:]
+                tabs.append((closed, closed.row_values(1).index("url")))
+            except Exception as err:
+                logger.warning("could not find the url column on %s: %s",
+                               closed.title, err)
+        out: set[str] = set()
+        for ws, col in tabs:
+            try:
+                cells = ws.col_values(col + 1, value_render_option="FORMULA")[1:]
             except Exception as err:
                 logger.warning("could not read url column on %s: %s", ws.title, err)
                 continue
