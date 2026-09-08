@@ -120,10 +120,21 @@ Also report degree_required, judging ONLY what the listing actually says:
                listing may be a truncated snippet. Never guess "required" from
                the seniority of the role.
 
+Also report employer_name, taking ONLY what the listing itself states:
+- The employer's own name where the posting gives it: "Company: Archer Wealth",
+  "About Mogul:", "We are House of Nannies".
+- "" everywhere else. A description of the business is not a name - "a
+  veteran-owned pest control company operating in Florida, Georgia and Alabama"
+  identifies nobody, and neither does "a Sydney-based private credit lender".
+- NEVER infer a name from the product, the industry, the domain or the job
+  title. A guessed employer is worse than a blank one: this is the field
+  somebody searches on to find every posting by one company, and a plausible
+  wrong answer is the one nobody checks.
+
 Keep `reasoning` under 400 characters - one or two sentences naming the decisive requirement and whether the resume meets it. It is a note to a human, not an essay, and a long one truncates the JSON.
 
 Return raw JSON only, no markdown:
-{{"skills_score": 0, "experience_score": 0, "reasoning": "", "matching_skills": [], "missing_skills": [], "degree_required": "unknown"}}"""
+{{"skills_score": 0, "experience_score": 0, "reasoning": "", "matching_skills": [], "missing_skills": [], "degree_required": "unknown", "employer_name": ""}}"""
 
 
 def _compute_salary_score(job: dict, baseline: float = 70000.0) -> int:
@@ -251,6 +262,12 @@ def score_job(
         # it a failed call reads as a legitimate low score forever after.
         "scored": bool(data),
         "degree_required": degree,
+        # Read here rather than in `enrich` because enrich never runs for the
+        # source that needs it: onlinejobs.ph sits in skip_link_domains (its own
+        # adapter already fetched the page, paced to the site's Crawl-delay), so
+        # this is the only call that ever sees those postings' text. Costs no
+        # extra call anywhere - the scorer is already reading the whole posting.
+        "employer_name": str(data.get("employer_name") or "").strip(),
         "priority_bonus": bonus,
         "priority_hits": hits,
         "skills_score": skills_score,

@@ -39,6 +39,8 @@ COLUMNS = [
     ("salary", "as the listing wrote it"),
     ("salary_php_monthly", "normalised, what the salary filter actually compared"),
     ("company", ""),
+    ("employer_name", "who the posting called itself, where the board does not say"),
+    ("employer_id", "the board's own id for that employer, where it exposes one"),
     ("location", ""),
     ("remote", "derived: structured field, then location, then posting text"),
     ("work_arrangement", "what the board itself said, where it says anything"),

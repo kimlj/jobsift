@@ -24,6 +24,10 @@ class GoogleSheetConfig:
     # Second tab for jobs the scorer put below score_threshold. Empty turns the
     # split off and everything lands in `worksheet`.
     worksheet_below: str = "Below the bar"
+    # Where a posting goes once the board stops listing it. Created lazily, so a
+    # sheet whose jobs are all still open never grows an empty tab. Empty turns
+    # the move off and a delisted row just keeps its status column.
+    worksheet_closed: str = "Closed"
     service_account_file: str = "./service-account.json"
 
 
@@ -87,6 +91,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         sheet_id=str(gs.get("sheet_id", "")),
         worksheet=str(gs.get("worksheet", "Shortlist")),
         worksheet_below=str(gs.get("worksheet_below", "Below the bar")),
+        worksheet_closed=str(gs.get("worksheet_closed", "Closed")),
         service_account_file=str(gs.get("service_account_file", "./service-account.json")),
     )
 

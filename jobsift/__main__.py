@@ -330,6 +330,18 @@ def main() -> None:
         help="Run normally but send nothing to Telegram. Everything is still scored and "
              "stored, so a first run can be inspected with --export before any alert fires.",
     )
+    parser.add_argument(
+        "--check-listings",
+        nargs="?",
+        const=25,
+        type=int,
+        metavar="N",
+        help="Re-check the N highest-scoring stored onlinejobs.ph postings and mark "
+             "the ones that have left the board's search results. Free of LLM cost, "
+             "but one paced request per job at the site's 5s Crawl-delay, so 25 jobs "
+             "takes about two minutes. Applied jobs and ones already marked are "
+             "skipped. Defaults to 25.",
+    )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--env", default=".env", help="Path to .env")
     args = parser.parse_args()
@@ -385,6 +397,63 @@ def main() -> None:
         writer = SheetWriter(config.google_sheet, config.score_threshold)
         count = writer.resync(records)
         print(f"resynced {count} row(s) from {len(records)} stored job(s)")
+        return
+
+    if args.check_listings:
+        from datetime import datetime
+
+        import httpx
+
+        from .export import rows as stored_rows
+        from .sources.onlinejobs import USER_AGENT, DEFAULT_DELAY, still_listed
+
+        store = Store(config.database_path)
+        skip = store.applied_urls() | store.delisted_urls()
+        candidates = [
+            r for r in stored_rows(config.database_path, settings=config.filters)
+            if r.get("source") == "onlinejobs_ph" and r.get("url") and r["url"] not in skip
+        ][: args.check_listings]
+
+        if not candidates:
+            print("nothing to check")
+            return
+
+        delay = float((config.scrape_sources.get("onlinejobs_ph") or {}).get(
+            "delay_seconds", DEFAULT_DELAY))
+        delay = max(delay, DEFAULT_DELAY)
+        print(f"checking {len(candidates)} posting(s) at {delay:.0f}s apart "
+              f"(~{len(candidates) * delay / 60:.1f} min)")
+
+        gone_urls: list[str] = []
+        unknown = 0
+        now = datetime.now().isoformat(timespec="seconds")
+        with httpx.Client(timeout=30, headers={"User-Agent": USER_AGENT},
+                          follow_redirects=True) as client:
+            for i, record in enumerate(candidates):
+                if i:
+                    time.sleep(delay)
+                listed = still_listed(client, record["url"], record.get("job_title") or "", delay)
+                if listed is False:
+                    store.mark_delisted(record["url"], now)
+                    gone_urls.append(record["url"])
+                    print(f"  gone    [{record.get('score')}] {record.get('job_title')}")
+                elif listed is None:
+                    unknown += 1
+                    print(f"  unknown [{record.get('score')}] {record.get('job_title')}")
+
+        gone = len(gone_urls)
+        print(f"{gone} delisted, {unknown} inconclusive, "
+              f"{len(candidates) - gone - unknown} still listed")
+
+        # The database is the record either way; the sheet is where the decision
+        # gets made, so a job that cannot be applied to should not still be
+        # sitting in the shortlist. Only reached when something actually closed.
+        if gone_urls and config.google_sheet.enabled:
+            from .sheets import SheetWriter
+
+            writer = SheetWriter(config.google_sheet, config.score_threshold)
+            moved = writer.move_to_closed(gone_urls)
+            print(f"moved {moved} row(s) to the {writer.closed_title!r} tab")
         return
 
     if args.scan_applied:

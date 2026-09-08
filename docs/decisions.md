@@ -257,3 +257,78 @@ conclusion.** Twice in one session a comment stated a limit truthfully and drew
 too much from it: Jobstreet's posting was reachable, and a job title could safely
 label a link. Both were written by someone who had tested the obvious thing and
 stopped.
+
+---
+
+## Listings that closed
+
+**A closed posting is detected by its absence from search, not from its own
+page.** onlinejobs.ph keeps serving the detail page of a closed job, and to a
+logged-out reader that page is identical to an open one: same
+`#job-description`, same "Please login or register as jobseeker to apply", HTTP
+200 either way. Diffing a closed posting against an open one found 21 meta tags
+each, 8 scripts each, the same inline variable names, and no `status`, `active`
+or `expired` field anywhere. The only differences were per-job values:
+`csrf-token`, the description, `employerId`, `jobId`. The "This job has been
+closed" banner renders only for an authenticated session, and this adapter never
+authenticates.
+
+**Absence only counts after a SHORT page.** The first live run marked two live
+jobs gone. "Software Engineer" and "AI / Full Stack Developer" are generic
+enough to fill all 30 slots on page one, so both postings were simply further
+down, and page one alone could not see them. A full page means there may be
+more; only a page that comes back short proves the result set has ended. A title
+that stays full for `DEFAULT_MAX_PAGES` returns None rather than a verdict.
+"Web Automation Engineer" returned 4 results, which is why the closed posting it
+was measured on gave a real answer.
+
+**`still_listed` returns None, not False, when it cannot tell.** Three states,
+because two would force a guess into one of them, and the guess that costs
+something is retiring a live job off the shortlist. `mark_delisted` is only ever
+called on a definite False.
+
+**A delisted row is moved to the Closed tab, never deleted.** It is a real job
+that was really scored, and the `applied` and `draft` ticks are the user's, so
+the whole row travels with them. Two things the move has to get right: it reads
+with `value_render_option="FORMULA"`, because the job title carries the link and
+the display value is only a caption; and it deletes from the bottom up, because
+removing a row renumbers everything under it.
+
+**The moved row's `status` cell is restated as `delisted`.** It was written at
+ingest and still said `new`. A row filed under Closed that calls itself new is
+the sheet disagreeing with itself.
+
+---
+
+## Naming the employer
+
+**`employer_name` is read by the SCORER, not by `enrich`.** Enrich is the
+extraction stage and looks like the right home, but it never runs for the source
+that needs this: onlinejobs.ph is in `skip_link_domains`, because its own adapter
+has already fetched the detail page paced to the site's Crawl-delay, and a second
+undelayed request for the same page is the thing that pacing exists to prevent.
+So `enrich_job` short-circuits, and the scoring call is the only one that ever
+sees those postings' text. Putting it there costs no extra call anywhere.
+
+**It is a new column, not a better `company`.** `company` is load-bearing:
+`job_key` falls back to the URL slug when it is empty, which is what keeps two
+same-titled onlinejobs postings from collapsing into one entry. Writing a name
+into it would re-key every stored row and re-alert the lot - the exact failure
+`SCHEMA_VERSION` exists to prevent. The two columns also answer different
+questions: what the board handed over, and what the posting called itself.
+
+**The model is told to abstain, and does.** Measured on five postings: Mogul,
+Archer Wealth and AI L3 Tech came back named; "Founding Full-Stack Developer",
+which says "I'm building Scout", came back empty because Scout is the product;
+and "veteran-owned, multi-state pest control company (Florida, Georgia,
+Alabama)" came back empty because that describes a business without identifying
+one. A guessed employer is worse than a blank one - this is the field somebody
+searches to find every posting by one company, and a plausible wrong answer is
+the one nobody checks.
+
+**`employer_id` is taken from the page instead of the prose.** The detail page
+carries no structured employer name - no JSON-LD, no meta tag, nothing in the
+markup - but it does assign `employerId` in an inline script (794885 for Archer
+Wealth, 918549 for Mogul). That is a stable identity the text cannot give: two
+postings by one employer share it whether or not either writes the company down.
+Database and CSV only; it earns no sheet column.

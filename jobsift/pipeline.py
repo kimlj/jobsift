@@ -30,6 +30,17 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "source": source or "N/A",
         "job_title": job.get("title") or "N/A",
         "company": job.get("company") or "N/A",
+        # The employer as the POSTING names itself, kept beside the board's own
+        # field rather than folded into it. `company` is load-bearing: job_key
+        # falls back to the URL slug when it is empty, which is what keeps two
+        # same-titled onlinejobs postings apart, so writing a name into it would
+        # re-key every stored row and re-alert the lot. This column is the one
+        # that answers "who is this" for the 142 rows whose board never said.
+        "employer_name": score.get("employer_name") or "N/A",
+        # Stable numeric id from the posting page, where the board exposes one.
+        # Deterministic and free, and it groups an employer's postings together
+        # even when nobody writes a name in the text.
+        "employer_id": job.get("employer_id") or "",
         "location": job.get("location") or "N/A",
         "remote": "Yes" if remote else "No",
         # The board's own word for it, kept alongside the derived flag so a row can

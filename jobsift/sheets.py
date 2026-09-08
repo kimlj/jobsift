@@ -49,6 +49,11 @@ HEADERS = [
     # employer said, the second is what the filter compared, and a row that looks
     # underpaid is usually one where those two disagree ("$25/hr", "50k PA").
     "job_title", "url", "source", "salary", "salary_php_monthly", "company",
+    # Beside company, not instead of it. company is what the board handed over
+    # and is empty on the sources that hide the employer; this is what the
+    # posting text called itself, and on onlinejobs.ph rows it is the only one
+    # of the two that ever says anything.
+    "employer_name",
     "location", "remote",
     "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
@@ -156,6 +161,10 @@ class SheetWriter:
         below = getattr(gs_config, "worksheet_below", "")
         self.ws_below = self._tab(below) if below else None
         self.draft_ws = None
+        # Name now, tab later. Created on the first delisted posting, so a sheet
+        # whose jobs are all still open never grows an empty tab explaining that.
+        self.closed_title = getattr(gs_config, "worksheet_closed", "")
+        self.closed_ws = None
 
     def _tab(self, title: str, headers: list | None = None, tickbox: bool = True,
              clip: bool = False):
@@ -463,6 +472,85 @@ class SheetWriter:
             except Exception as err:
                 logger.warning("could not tick applied on %s: %s", ws.title, err)
         return ticked
+
+    def _closed_tab(self):
+        """The Closed tab, made on first use. None when the feature is off."""
+        if not self.closed_title:
+            return None
+        if self.closed_ws is None:
+            self.closed_ws = self._tab(self.closed_title)
+        return self.closed_ws
+
+    def move_to_closed(self, urls) -> int:
+        """Move rows whose posting has left its board into the Closed tab.
+
+        Moved, never deleted. The row is a real job that was really scored, and
+        your `applied` and `draft` ticks are in it — losing those would relitigate
+        applications you have already sent. So the whole row travels, ticks and
+        all, and the shortlist is left holding only jobs that can still be
+        applied to.
+
+        Two things this has to get right:
+
+        * **Read as FORMULA.** The job title carries the link (see
+          `docs/decisions.md`), so the displayed value is a caption and the
+          address lives in a HYPERLINK the default render option throws away.
+          Copying display values would move every row and silently unlink it.
+        * **Delete from the bottom up.** Removing row 12 renumbers everything
+          under it, so deleting ascending would take the wrong rows out from the
+          second one onward. `hits` is sorted descending for exactly this.
+
+        Returns how many rows moved.
+        """
+        target = self._closed_tab()
+        if target is None:
+            return 0
+        wanted = {u for u in (urls or ()) if u}
+        if not wanted:
+            return 0
+
+        moved = 0
+        for ws in (self.ws, self.ws_below):
+            if ws is None or ws is target:
+                continue
+            rows_by_url = self._url_rows(ws)
+            hits = sorted(
+                ((rows_by_url[u], u) for u in wanted if u in rows_by_url), reverse=True
+            )
+            if not hits:
+                continue
+            try:
+                values = ws.get_values(value_render_option="FORMULA")
+            except Exception as err:
+                logger.warning("could not read %s to move closed rows: %s", ws.title, err)
+                continue
+
+            status_col = HEADERS.index("status")
+            payload = []
+            for index, _ in reversed(hits):  # back to sheet order for the write
+                if index - 1 < len(values):
+                    row = list(values[index - 1])
+                    row += [""] * (len(HEADERS) - len(row))
+                    # The row is copied verbatim so the ticks survive, but its
+                    # status was written at ingest and still says "new". A row
+                    # filed under Closed that calls itself new is the sheet
+                    # disagreeing with itself, so this one cell is restated.
+                    row[status_col] = "delisted"
+                    payload.append(row)
+            if not payload:
+                continue
+
+            self._write(target, payload)
+            for index, _ in hits:
+                try:
+                    ws.delete_rows(index)
+                except Exception as err:
+                    logger.warning("moved row %d off %s but could not delete it: %s",
+                                   index, ws.title, err)
+            moved += len(payload)
+            logger.info("moved %d closed posting(s) from %s to %s",
+                        len(payload), ws.title, target.title)
+        return moved
 
     def _ticked_urls(self, column: str) -> set[str]:
         """Urls whose `column` tickbox is TRUE, across both job tabs."""

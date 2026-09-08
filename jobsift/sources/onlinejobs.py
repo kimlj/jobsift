@@ -34,6 +34,8 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+_EMPLOYER_ID_RE = re.compile(r"employerId\s*=\s*(\d+)")
+
 BASE = "https://www.onlinejobs.ph"
 SEARCH = BASE + "/jobseekers/jobsearch"
 PAGE_SIZE = 30  # the site paginates by row offset, 30 per page
@@ -93,19 +95,24 @@ def _fetch_description(client, url: str) -> str:
     fed it a snippet and the scorer honestly answered "unknown" for all 149
     jobs. The sentence it needs is on this page and nowhere else.
 
-    Returns "" on any failure, so the caller keeps the card's short description
-    rather than losing the job.
+    Returns ("", "") on any failure, so the caller keeps the card's short
+    description rather than losing the job.
     """
     try:
         resp = client.get(url)
     except Exception as exc:
         logger.warning("onlinejobs.ph: detail fetch failed for %s (%s)", url, exc)
-        return ""
+        return "", ""
     if resp.status_code != 200:
         logger.warning("onlinejobs.ph: detail %s returned %s", url, resp.status_code)
-        return ""
+        return "", ""
     node = BeautifulSoup(resp.text, "html.parser").select_one("#job-description")
-    return _text(node)
+    # The page has no structured employer NAME - no JSON-LD, no meta, nothing in
+    # the markup - but it does assign the employer's id in an inline script, and
+    # that is a stable identity the prose cannot give: two postings by the same
+    # employer share it whether or not either one writes the company down.
+    match = _EMPLOYER_ID_RE.search(resp.text)
+    return _text(node), (match.group(1) if match else "")
 
 
 def _parse_card(card) -> dict | None:
@@ -287,11 +294,112 @@ def fetch_jobs(settings: dict, is_seen=None) -> list[dict]:
                 )
             for job in pending:
                 time.sleep(delay)
-                full = _fetch_description(client, job["url"])
+                full, employer = _fetch_description(client, job["url"])
                 if full and len(full) > len(job.get("description") or ""):
                     job["description"] = full
+                if employer:
+                    job["employer_id"] = employer
 
     logger.info(
         "onlinejobs.ph: %d listing(s) read, %d kept after keyword filter", seen_before_filter, len(jobs)
     )
     return jobs
+
+
+# The job id that ends every posting URL: ".../job/web-automation-engineer-1720855".
+_JOB_ID_RE = re.compile(r"-(\d+)/?$")
+
+
+def job_id(url: str) -> str:
+    """The numeric id at the end of a posting URL, or "" if there isn't one."""
+    match = _JOB_ID_RE.search((url or "").strip())
+    return match.group(1) if match else ""
+
+
+def still_listed(client, url: str, title: str, delay: float = DEFAULT_DELAY) -> bool | None:
+    """Is this stored posting still in the board's search results?
+
+    True = found, False = the search worked and the posting is not in it,
+    None = could not tell, which is NOT the same as gone and must never be
+    written to a row as if it were.
+
+    **Why search rather than the posting's own page.** A closed job keeps
+    serving its detail page, and to a logged-out reader that page is
+    byte-identical to an open one: same `#job-description`, same "Please login
+    or register as jobseeker to apply", same tag skeleton, HTTP 200 either way.
+    The "This job has been closed" banner renders only for an authenticated
+    session, and this adapter deliberately never authenticates. So the detail
+    page cannot answer the question and the listing has to.
+
+    **Measured, on one closed job and one open one.** Searching the board for
+    the closed posting's own title ("web automation") returned 60 results and
+    it was not among them, though its title is an exact match and it should
+    have led. Searching for the open posting's title ("lead software engineer")
+    returned 20 results and found it. Closed postings leave the index; open
+    ones do not.
+
+    **The empty page is the trap.** `fetch_jobs` documents that this site serves
+    a listing-less page on the first hit of a session and the populated one on a
+    repeat. A search that comes back with no cards at all is therefore
+    indistinguishable from a search for a job that no longer exists, so it
+    returns None. Only a search that returned OTHER postings, and not this one,
+    is evidence of anything.
+
+    **The full page is the other trap, and it fired on the first live run.** A
+    search is read a page at a time, so "not on the page" only means "not in the
+    board's results" when the page was SHORT enough to be the last one. Checking
+    page one alone marked two live jobs gone: "Software Engineer" and "AI / Full
+    Stack Developer" are generic enough to fill 30 of 30 slots, and both
+    postings were simply further down. So absence counts only after a page comes
+    back short, and a title that stays full for DEFAULT_MAX_PAGES returns None
+    rather than a verdict. "Web Automation Engineer" returned 4 results, which
+    is why the closed posting it was measured on gave a real answer.
+    """
+    wanted = job_id(url)
+    if not wanted or not (title or "").strip():
+        return None
+
+    query = quote_plus(title.strip())
+    for page in range(DEFAULT_MAX_PAGES):
+        offset = "" if page == 0 else f"/{page * PAGE_SIZE}"
+        target = f"{SEARCH}{offset}?jobkeyword={query}"
+
+        cards: list = []
+        for attempt in range(2):
+            if page or attempt:
+                time.sleep(delay)
+            try:
+                resp = client.get(target)
+            except Exception as exc:
+                logger.warning("onlinejobs.ph: listing check failed for %s (%s)", url, exc)
+                return None
+            if resp.status_code != 200:
+                logger.warning(
+                    "onlinejobs.ph: listing check %s returned %s", target, resp.status_code)
+                return None
+            soup = BeautifulSoup(resp.text, "html.parser")
+            cards = soup.select(".jobpost-cat-box")
+            if cards:
+                break
+
+        if not cards:
+            # Page 1 empty after a paced retry is the session quirk, not an
+            # answer. A later page empty means the result set simply ended,
+            # and we have now seen all of it without finding the job.
+            return None if page == 0 else False
+
+        # Match on the id, not the slug: an employer can edit a title, which
+        # rewrites the slug while the id stays put.
+        found = {job_id(a["href"]) for a in soup.select("a[href*='/jobseekers/job/']")}
+        if wanted in found:
+            return True
+        if len(cards) < PAGE_SIZE:
+            # Short page, so this was the last one and we have seen every
+            # result the board has for this title. The job is not among them.
+            return False
+
+    # Every page we were willing to read came back full and the job was in none
+    # of them. There may be more; absence here is not evidence. This is the case
+    # a generic title produces - "Software Engineer" alone fills page after page
+    # - and returning False on it would retire live jobs off the shortlist.
+    return None

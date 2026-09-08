@@ -187,6 +187,52 @@ class Store:
         """Every url a board has confirmed. Survives the sheet being off."""
         return {row[0] for row in self.conn.execute("SELECT url FROM applied_jobs")}
 
+    # -- postings that have left their board --
+    def mark_delisted(self, url: str, when: str) -> int:
+        """Record that a posting is no longer in its board's search results.
+
+        Writes `status` on the stored record rather than deleting the row: the
+        job was really scored, it may already have been applied to, and a row
+        that vanishes from the sheet is indistinguishable from one that was
+        never there. Returns how many stored rows were updated, which is more
+        than one when the same posting reached us from two sources.
+
+        Only ever called with a definite answer. A check that could not tell
+        leaves the row alone — see `sources.onlinejobs.still_listed`, which
+        returns None for that case precisely so it cannot be mistaken for gone.
+        """
+        updated = 0
+        for row_id, blob in self.conn.execute(
+            "SELECT id, data FROM jobs WHERE url = ?", (url,)
+        ).fetchall():
+            try:
+                record = json.loads(blob)
+            except Exception:
+                continue
+            if record.get("status") == "delisted":
+                continue
+            record["status"] = "delisted"
+            record["delisted_on"] = when
+            self.conn.execute(
+                "UPDATE jobs SET data = ? WHERE id = ?", (json.dumps(record), row_id)
+            )
+            updated += 1
+        if updated:
+            self.conn.commit()
+        return updated
+
+    def delisted_urls(self) -> set[str]:
+        """Every url already known to have left its board. Skipped on re-checks."""
+        found = set()
+        for (blob,) in self.conn.execute("SELECT data FROM jobs"):
+            try:
+                record = json.loads(blob)
+            except Exception:
+                continue
+            if record.get("status") == "delisted" and record.get("url"):
+                found.add(record["url"])
+        return found
+
     def cleanup(self, days: int = 30) -> None:
         """Forget dedup keys and processed-email uids older than `days`."""
         cutoff = int(time.time()) - days * 86400
