@@ -488,10 +488,16 @@ class SheetWriter:
                           "startColumnIndex": column,
                           "endColumnIndex": column + 1},
                 "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
-            # stage is a dropdown, not a tick. strict=False on purpose: a
-            # rejected edit is a dialog the user has to dismiss, and somebody
-            # typing their own word into their own column should get a warning
-            # triangle, not a fight with the sheet.
+            # stage is a dropdown, not a tick, and strict=True does two things
+            # at once. It is what makes Sheets draw the value as a rounded chip
+            # rather than a bare cell with an arrow, which is the whole reason
+            # the column is scannable. And it stops a typo: `mark_applied` and
+            # `applied_urls` compare these strings exactly, so an "applied" that
+            # should have been "Applied" would quietly drop a row out of
+            # STAGE_SENT and offer a job back that was already sent. An earlier
+            # version used strict=False to avoid arguing with someone typing
+            # their own word into their own column; the closed set of six is
+            # worth more than that freedom.
             column = headers.index("stage")
             requests.append({"setDataValidation": {
                 "range": {"sheetId": ws.id, "startRowIndex": 1,
@@ -500,7 +506,7 @@ class SheetWriter:
                           "endColumnIndex": column + 1},
                 "rule": {"condition": {"type": "ONE_OF_LIST",
                                        "values": [{"userEnteredValue": v} for v in STAGES]},
-                         "showCustomUi": True, "strict": False}}})
+                         "showCustomUi": True, "strict": True}}})
             requests += self._stage_colour_requests(ws, column)
         if "salary" in headers:
             # As-written salaries are text, but Sheets reads a bare "1500" as a

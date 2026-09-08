@@ -424,6 +424,15 @@ in DESCENDING index order, because the rules are a list and each delete
 renumbers everything after it. Rules on other columns are left alone: they are
 not ours to remove.
 
+**`strict: True` is what draws the chips.** A ONE_OF_LIST validation renders as
+a rounded chip when it is strict and as a bare cell with a small arrow when it
+is not; nothing else in the rule controls it. Found by diffing the `source`
+column, which a person had set up by hand and which was already drawing chips,
+against `stage`, which was not: one field apart. Strict also stops a typo, and
+that matters more here than it looks - `mark_applied` and `applied_urls` compare
+these strings exactly, so an "applied" that should have been "Applied" would
+drop a row out of STAGE_SENT and offer back a job already sent.
+
 **If the rules cannot be read, no colour is written.** Adding blind is precisely
 how the stack happens, and a colourless column is a much smaller problem than
 sixty rules nobody asked for.
