@@ -16,6 +16,29 @@ logger = logging.getLogger(__name__)
 STAGES = ["New", "To apply", "Applied", "Interviewing", "Rejected", "Ignore"]
 STAGE_DEFAULT = "New"
 
+# Background and text for each stage, as "#rrggbb". Chosen so the column can be
+# read down at a glance rather than word by word: Interviewing is the only one
+# that should catch the eye across a screenful, To apply is the one asking for
+# an action, and the two dead ends are drained of colour on purpose - Rejected
+# because it is over, Ignore because you already decided. New is nearly white so
+# an untriaged row reads as background rather than as a state.
+STAGE_COLOURS = {
+    "New":          ("#F8F9FA", "#80868B"),
+    "To apply":     ("#FEF7E0", "#B06000"),
+    "Applied":      ("#E8F0FE", "#1967D2"),
+    "Interviewing": ("#CEEAD6", "#0D652D"),
+    "Rejected":     ("#FCE8E6", "#C5221F"),
+    "Ignore":       ("#E8EAED", "#9AA0A6"),
+}
+
+
+def _rgb(value: str) -> dict:
+    """"#rrggbb" to the 0-1 floats the Sheets API wants."""
+    value = value.lstrip("#")
+    return {"red": int(value[0:2], 16) / 255,
+            "green": int(value[2:4], 16) / 255,
+            "blue": int(value[4:6], 16) / 255}
+
 # Stages the program may overwrite when a receipt arrives. Everything else is a
 # decision the user made by hand and knows more about than we do: a receipt
 # landing on a row marked Ignore means either they applied and changed their
@@ -382,14 +405,74 @@ class SheetWriter:
             return self.ws
         return self.ws if score >= self.threshold else self.ws_below
 
+    def _stage_colour_requests(self, ws, column: int) -> list:
+        """Conditional formatting for the stage column, one rule per value.
+
+        Deletes this tab's existing rules on that column before adding them
+        back, because conditional formats do not overwrite: adding the same six
+        every run would stack sixty by the tenth, all agreeing, all evaluated.
+        That is the one part of `_setup` that is not naturally idempotent.
+
+        Deletions are emitted in DESCENDING index order. The rules live in a
+        list and each delete renumbers the ones after it, so removing 0 then 1
+        removes the wrong second rule.
+
+        Rules the user added themselves on other columns are left alone; only
+        ones covering this column are replaced.
+        """
+        existing = []
+        try:
+            meta = self.spreadsheet.fetch_sheet_metadata()
+            for sheet in meta.get("sheets", []):
+                if sheet.get("properties", {}).get("sheetId") != ws.id:
+                    continue
+                for index, rule in enumerate(sheet.get("conditionalFormats", [])):
+                    for span in rule.get("ranges", []):
+                        if (span.get("startColumnIndex") == column
+                                and span.get("endColumnIndex") == column + 1):
+                            existing.append(index)
+                            break
+        except Exception as err:
+            # Without the read we cannot tell new rules from old, and adding
+            # blind is how the stack happens. Skipping colour is the safe miss.
+            logger.warning("could not read conditional formats on %s: %s", ws.title, err)
+            return []
+
+        requests = [
+            {"deleteConditionalFormatRule": {"sheetId": ws.id, "index": index}}
+            for index in sorted(existing, reverse=True)
+        ]
+        span = {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": 5000,
+                "startColumnIndex": column, "endColumnIndex": column + 1}
+        for offset, stage in enumerate(STAGES):
+            background, foreground = STAGE_COLOURS[stage]
+            requests.append({"addConditionalFormatRule": {
+                "index": offset,
+                "rule": {
+                    "ranges": [dict(span)],
+                    "booleanRule": {
+                        "condition": {"type": "TEXT_EQ",
+                                      "values": [{"userEnteredValue": stage}]},
+                        "format": {
+                            "backgroundColor": _rgb(background),
+                            "textFormat": {"foregroundColor": _rgb(foreground),
+                                           "bold": stage == "Interviewing"},
+                        },
+                    },
+                },
+            }})
+        return requests
+
     def _setup(self, ws, headers: list | None = None, tickbox: bool = True,
                clip: bool = False) -> None:
         """Make a tab usable without anyone opening a menu.
 
-        A stage dropdown and a draft tick box, a frozen header row and first
-        column, and a filter on row 1 so it can be sorted by score. All of it
-        is idempotent — re-applying the same validation and freeze is a no-op,
-        and a basic filter that already exists is left alone.
+        A stage dropdown and its colours, a draft tick box, a frozen header row
+        and first column, and a filter on row 1 so it can be sorted by score.
+        All of it is idempotent — re-applying the same validation and freeze is
+        a no-op, a basic filter that already exists is left alone, and the
+        conditional formats are deleted before being re-added because those
+        would otherwise stack.
 
         Validation runs to row 5000 rather than the current last row, so rows
         appended by later runs land inside it and get a tick box too.
@@ -418,6 +501,7 @@ class SheetWriter:
                 "rule": {"condition": {"type": "ONE_OF_LIST",
                                        "values": [{"userEnteredValue": v} for v in STAGES]},
                          "showCustomUi": True, "strict": False}}})
+            requests += self._stage_colour_requests(ws, column)
         if "salary" in headers:
             # As-written salaries are text, but Sheets reads a bare "1500" as a
             # number and right-aligns it, so the column comes out ragged: "$17/hr"

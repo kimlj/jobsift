@@ -414,3 +414,16 @@ empty rows of the Closed tab, a tab holding two.
 **Nothing here needs a manual step.** A new sheet is created with `stage` and
 gets the dropdown from `_setup`; an existing one is converted on the next run,
 the same way every other column change has shipped.
+
+**The stage colours are deleted before they are re-added.** Conditional formats
+do not overwrite; they accumulate. Adding the same six every run would leave
+sixty by the tenth, all agreeing with each other and all evaluated. This is the
+one part of `_setup` that is not idempotent on its own, so it reads the tab's
+existing rules and drops the ones covering that column first. Deletions go out
+in DESCENDING index order, because the rules are a list and each delete
+renumbers everything after it. Rules on other columns are left alone: they are
+not ours to remove.
+
+**If the rules cannot be read, no colour is written.** Adding blind is precisely
+how the stack happens, and a colourless column is a much smaller problem than
+sixty rules nobody asked for.
