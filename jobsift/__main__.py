@@ -17,6 +17,22 @@ from .store import Store
 log = logging.getLogger("jobsift")
 
 
+def _refresh_usage(profile_path: str) -> None:
+    """Bring profile.yaml's Claude Code figures up to date before they are quoted.
+
+    Here rather than on a timer, because the only moment the figure matters is the
+    moment a draft is about to state it to an employer. Reading a local JSON costs
+    nothing, and never fails a draft: a missing file leaves the profile as it is.
+    """
+    try:
+        from .usage import sync_profile
+
+        if sync_profile(profile_path):
+            log.info("Refreshed Claude Code figures in %s", profile_path)
+    except Exception:
+        log.exception("Could not refresh usage figures; drafting with what is there")
+
+
 def _run_draft(args, config) -> None:
     """Print a reviewable application draft for one stored job. Sends nothing."""
     import json
@@ -26,6 +42,7 @@ def _run_draft(args, config) -> None:
 
     from .draft import draft_application, render
 
+    _refresh_usage(args.profile)
     try:
         profile = yaml.safe_load(open(args.profile, encoding="utf-8")) or {}
     except FileNotFoundError:
@@ -135,6 +152,7 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
     if not wanted:
         return 0
 
+    _refresh_usage(args.profile)
     try:
         profile = yaml.safe_load(open(args.profile, encoding="utf-8")) or {}
     except FileNotFoundError:
@@ -256,6 +274,12 @@ def main() -> None:
              "Prints a cover letter and proposed answers for review; sends nothing.",
     )
     parser.add_argument("--profile", default="profile.yaml", help="Path to profile.yaml")
+    parser.add_argument(
+        "--sync-usage",
+        action="store_true",
+        help="Refresh profile.yaml's Claude Code figures from the kimlj.dev usage file "
+             "and exit. Runs by itself before every draft; this is for checking it.",
+    )
     parser.add_argument(
         "--no-sheet",
         action="store_true",
@@ -387,6 +411,18 @@ def main() -> None:
     _filters.set_usd_rate(_rate)
     config.filters["usd_to_php"] = _rate
     log.info("USD to PHP: %.2f (%s)", _rate, _note)
+
+    if args.sync_usage:
+        from .usage import read_usage, sync_profile
+
+        data = read_usage()
+        if not data:
+            raise SystemExit("No usage file to read. Has the sync task run yet?")
+        changed = sync_profile(args.profile)
+        print(f"{args.profile}: {'updated' if changed else 'already current'} — "
+              f"{data['hours']}h, {data['prompts']} prompts, {data['projects']} projects "
+              f"(as of {data['as_of']})")
+        return
 
     if args.draft:
         _run_draft(args, config)
