@@ -492,6 +492,23 @@ scrape_sources:
 # Send a Telegram alert when a job's total score is at least this (out of 100)
 score_threshold: 60
 
+# The fit floor. skills + experience is the only part of the score that measures
+# whether you can do the job; salary is 40 points by itself and priority_points
+# adds more on top. Without a floor, a job that pays double and happens to hit a
+# priority keyword clears the threshold on those alone, while the scorer's own
+# reasoning says you are not qualified.
+#
+# Expressed as a fraction of the skills+experience ceiling for the evidence mode
+# (60 on a full posting, 24 on a snippet, which the snippet rule caps at 12+12).
+# At 0.3 a full posting needs 18 of 60 and a snippet needs 7 of 24. Below that the
+# job is held just under score_threshold no matter what it pays.
+#
+# Set it to 0 to disable the floor; raise it to be pickier. Pick the number by
+# replaying your own scored history rather than guessing: on the author's 467
+# rows, 0.3 held 9 mismatches and cost nothing, while 0.5 also took five jobs
+# that were worth opening.
+min_fit_ratio: 0.3
+
 # What a full-marks salary looks like, in PHP per month. The salary component
 # of the score (40 of 100) is measured against this: at or above it scores 20+,
 # at double it scores the full 40. Separate from filters.min_salary_php, which

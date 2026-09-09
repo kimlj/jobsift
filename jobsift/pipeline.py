@@ -61,6 +61,10 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
         "evidence_chars": score.get("evidence_chars", 0),
         "degree_required": score.get("degree_required", "unknown"),
         "priority_bonus": score.get("priority_bonus", 0),
+        # "held" means pay and priority had carried this past the threshold on a
+        # fit the scorer had already called too low. Recorded rather than silent,
+        # so a capped total reads as a decision instead of a near-miss.
+        "fit_gated": "held" if score.get("fit_gated") else "",
         "priority_hits": ", ".join(score.get("priority_hits") or []),
         "skill_match": f"{score['skills_score']}/30",
         "experience_fit": f"{score['experience_score']}/30",
@@ -149,6 +153,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
             score = score_job(
             llm, config.models["score"], job, resume, config.salary_baseline_php,
                 config.priority_keywords, config.priority_points,
+                config.min_fit_ratio, config.score_threshold,
             )
             keep, why = passes_filters({**job, "degree_required": score.get("degree_required")}, config.filters)
             if not keep:
@@ -192,6 +197,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
         score = score_job(
             llm, config.models["score"], job, resume, config.salary_baseline_php,
                 config.priority_keywords, config.priority_points,
+                config.min_fit_ratio, config.score_threshold,
             )
         keep, why = passes_filters({**job, "degree_required": score.get("degree_required")}, config.filters)
         if not keep:

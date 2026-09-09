@@ -53,6 +53,7 @@ COLUMNS = [
     ("experience_fit", "out of 30"),
     ("interest_fit", "salary component, out of 40"),
     ("priority_bonus", "points added for a priority keyword"),
+    ("fit_gated", "held — pay and priority alone had pushed this over the bar"),
     ("priority_hits", "which keywords matched"),
     ("matching_skills", ""),
     ("missing_skills", ""),

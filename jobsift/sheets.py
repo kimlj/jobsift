@@ -115,7 +115,7 @@ HEADERS = [
     "location", "remote",
     "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
-    "interest_fit", "matching_skills", "missing_skills", "reasoning", "status",
+    "interest_fit", "fit_gated", "matching_skills", "missing_skills", "reasoning", "status",
     "reported_at",
 ]
 

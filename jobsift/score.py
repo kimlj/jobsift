@@ -160,6 +160,31 @@ def _compute_salary_score(job: dict, baseline: float = 70000.0) -> int:
     return round(value / baseline * 20)
 
 
+# Skills+experience is the only part of the score that measures FIT. Salary is 40
+# points on its own and the priority bonus adds more, so a well-paid job whose
+# keywords happen to match can clear the threshold while the model is saying, in
+# its own reasoning, that the candidate is not qualified. That is not a scoring
+# error - each component was right - it is an arithmetic one, and it put a
+# Technical Delivery Manager role (agency experience and 6+ years of delivery
+# management, neither evidenced) on the shortlist at exactly 60, with an 18-point
+# priority bonus and full marks for paying 3x baseline.
+#
+# So pay and preference rank jobs the candidate could do. They do not qualify one.
+# Below the floor the total is held under the alert threshold, whatever it pays.
+#
+# The ceiling differs by evidence mode: SNIPPET_RULE caps skills and experience at
+# 12 each, so a floor measured against 60 would reject every snippet job on the
+# board regardless of how well it actually matched.
+FIT_CEILING_FULL = 60
+FIT_CEILING_SNIPPET = 24
+
+
+def fit_floor(thin: bool, ratio: float) -> int:
+    """Minimum skills+experience for pay to be allowed to carry a job over the bar."""
+    ceiling = FIT_CEILING_SNIPPET if thin else FIT_CEILING_FULL
+    return round(ceiling * max(0.0, min(1.0, ratio)))
+
+
 def priority_bonus(job: dict, keywords: list[str], bonus: int) -> tuple[int, list[str]]:
     """Extra points for the kind of work you actively want.
 
@@ -192,6 +217,8 @@ def score_job(
     baseline: float = 70000.0,
     priority_keywords: list | None = None,
     priority_points: int = 0,
+    min_fit_ratio: float = 0.3,
+    score_threshold: int = 60,
 ) -> dict:
     available = evidence_chars(job)
     thin = available < SNIPPET_CHARS
@@ -242,6 +269,21 @@ def score_job(
     # Capped so a bonus cannot push a job past a perfect score.
     total = min(100, skills_score + experience_score + salary_score + bonus)
 
+    # See FIT_CEILING_FULL above. Only applied to a job that was actually judged:
+    # an unparsed reply already scores 0/0, and gating that would restate the
+    # failure as a fit verdict.
+    fit = skills_score + experience_score
+    floor = fit_floor(thin, min_fit_ratio)
+    fit_gated = bool(data) and fit < floor and total >= score_threshold
+    if fit_gated:
+        logger.info(
+            "score: %s @ %s held at %d - fit %d/%d is below the floor of %d, and %d of its "
+            "points came from pay and priority rather than match",
+            job.get("title"), job.get("company"), score_threshold - 1, fit,
+            FIT_CEILING_SNIPPET if thin else FIT_CEILING_FULL, floor, salary_score + bonus,
+        )
+        total = score_threshold - 1
+
     degree = str(data.get("degree_required", "unknown") or "unknown").strip().lower()
     if degree not in ("required", "preferred", "none", "unknown"):
         degree = "unknown"
@@ -273,6 +315,11 @@ def score_job(
         "skills_score": skills_score,
         "experience_score": experience_score,
         "salary_score": salary_score,
+        # Recorded so a held-back job stays legible: without it the capped total
+        # looks like an ordinary near-miss rather than a job that was paying its
+        # way past a fit it did not have.
+        "fit_gated": fit_gated,
+        "fit_floor": floor,
         "total": total,
         "reasoning": data.get("reasoning", "") or "",
         "matching_skills": data.get("matching_skills", []) or [],

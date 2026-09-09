@@ -54,6 +54,9 @@ class Config:
     resume_path: str
     models: dict
     telegram_enabled: bool
+    # Floor on skills+experience before salary and priority may carry a job over
+    # score_threshold. See min_fit_ratio in config.yaml.
+    min_fit_ratio: float = 0.3
     priority_keywords: list = field(default_factory=list)
     priority_points: int = 0
     telegram_options: dict = field(default_factory=dict)
@@ -113,6 +116,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         job_subject_keywords=list(data.get("job_subject_keywords") or []),
         skip_link_domains=list(data.get("skip_link_domains") or []),
         score_threshold=int(data.get("score_threshold", 60)),
+        min_fit_ratio=float(data.get("min_fit_ratio", 0.3)),
         salary_baseline_php=int(data.get("salary_baseline_php", 70000)),
         priority_keywords=list(data.get("priority_keywords") or []),
         priority_points=int(data.get("priority_points", 0)),
