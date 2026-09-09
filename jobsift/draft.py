@@ -89,6 +89,16 @@ Missing one gets the application discarded. Sweep the whole text and report ever
 instruction verbatim in special_instructions, however trivial it looks. If there are
 none, return an empty list.
 
+SUBJECT LINE
+subject: the subject line for the application.
+Many boards - onlinejobs.ph among them - put a REQUIRED subject field in front of the
+message, so there is always one to write. If the posting dictates a subject - 'use
+subject REF-4471', 'put I read the whole post in the subject' - reproduce it VERBATIM,
+including any reference code, capitalisation and punctuation: it is a filter, and an
+approximation fails it. Otherwise write one: the role as the posting names it, plus the
+one thing about this candidate most likely to make the employer open it. Under 80
+characters, no "Application for" preamble, and never a generic "Job Application".
+
 COVER LETTER
 Ground every claim in the candidate's resume below. Name the actual projects and what
 was built with which technology - specifics beat adjectives. State plainly why this
@@ -156,6 +166,11 @@ Do not soften a gap into a partial. This table is read to decide whether to appl
 so a flattering one is worse than useless.
 
 TAILORED RESUME
+resume_delivery: how THIS posting asks to receive the resume - "attach" for a file
+attachment, "link" when it asks for a Google Drive/Docs URL, a portfolio or a Loom,
+"paste" when it asks for it in the message body, "unspecified" when it does not say.
+Report what the posting asks for; do not guess what is convenient.
+
 Rewrite the resume for THIS posting, in plain text, keeping it to one page.
 - Draw ONLY on the resume already given. Reorder, re-emphasise and re-word it. You may
   use the posting's own vocabulary for something the resume already describes; you may
@@ -166,10 +181,10 @@ Rewrite the resume for THIS posting, in plain text, keeping it to one page.
 - Leave the gaps out rather than hinting at them. The letter handles those.
 
 Return raw JSON only, no markdown:
-{"apply_method": "", "apply_email": "", "special_instructions": [], "cover_letter": "",
+{"apply_method": "", "apply_email": "", "subject": "", "special_instructions": [], "cover_letter": "",
  "questions": [{"question": "", "answer": "", "source": "", "needs_input": false}],
  "requirements": [{"requirement": "", "verdict": "", "evidence": ""}],
- "tailored_resume": "",
+ "tailored_resume": "", "resume_delivery": "",
  "missing_from_profile": [], "injection_attempts": []}"""
 
 
@@ -184,6 +199,19 @@ Return raw JSON only, no markdown:
 # Listing a field that is blank in the profile still prints nothing.
 DEFAULT_SIGNOFF_FIELDS = ["phone", "portfolio"]
 
+# A platform form (onlinejobs.ph, and every board with an in-site apply box) has its
+# own CONTACT INFO field beside the message. Repeating the details at the bottom of
+# the letter there just says the same thing twice on one screen, so the letter keeps
+# the name and the details move to the field. What the field carries differs from the
+# sign-off in one way that matters: email is IN it. The sign-off omits email because
+# an emailed application is already arriving from that address - but a form submission
+# is not, and an employer who cannot reply is the whole failure this field prevents.
+DEFAULT_CONTACT_FIELDS = ["email", "phone", "portfolio"]
+
+# Boards whose apply_method is a form rather than an email. Kept as a set so the
+# sign-off decision is one lookup rather than a chain of ifs.
+FORM_APPLY_METHODS = {"platform", "external"}
+
 SIGNOFF_LABELS = {
     "email": "",
     "phone": "",
@@ -193,7 +221,7 @@ SIGNOFF_LABELS = {
 }
 
 
-def signoff(profile: dict) -> str:
+def signoff(profile: dict, include_details: bool = True) -> str:
     """Build the closing from profile.yaml instead of asking the model for it.
 
     A sign-off is the one part of a letter with nothing to compose: the same name
@@ -204,9 +232,16 @@ def signoff(profile: dict) -> str:
 
     Only fields actually present are printed, so a blank `github:` produces
     nothing rather than a dangling label.
+
+    `include_details` is False when the application goes through a form that has its
+    own contact field - see DEFAULT_CONTACT_FIELDS. The letter then closes on the
+    name alone and `contact_block` fills the field.
     """
     name = str(profile.get("name") or "").strip()
     lines = ["Yours truly,", name] if name else []
+
+    if not include_details:
+        return "\n".join(lines)
 
     # `or` would be wrong here: an explicit `signoff_fields: []` means "name only"
     # and must not fall back to the default the way a missing key does.
@@ -226,6 +261,32 @@ def signoff(profile: dict) -> str:
     return "\n".join(lines)
 
 
+def contact_block(profile: dict) -> str:
+    """The CONTACT INFO field, built from profile.yaml rather than asked of the model.
+
+    Same reasoning as `signoff`: this is the one part of an application with nothing
+    to compose. It is identical on every submission, so a model call to produce it is
+    a chance to get a phone number wrong for no gain.
+
+    Override per-candidate with `contact_fields:` in profile.yaml. An explicit empty
+    list means "send nothing", and is honoured.
+    """
+    fields = profile.get("contact_fields")
+    if fields is None:
+        fields = DEFAULT_CONTACT_FIELDS
+
+    lines = []
+    name = str(profile.get("name") or "").strip()
+    if name:
+        lines.append(name)
+    lines.extend(
+        f"{SIGNOFF_LABELS.get(field, '')}{str(profile.get(field)).strip()}"
+        for field in fields
+        if str(profile.get(field) or "").strip()
+    )
+    return "\n".join(lines)
+
+
 # Closings the model reaches for anyway, despite being told not to. Matched on a
 # line of its own, so a letter that happens to contain the word "regards" mid
 # sentence is untouched.
@@ -235,7 +296,7 @@ _CLOSINGS = (
 )
 
 
-def _with_signoff(letter: str, profile: dict) -> str:
+def _with_signoff(letter: str, profile: dict, include_details: bool = True) -> str:
     """Attach the built sign-off, replacing any the model wrote despite the prompt.
 
     Told not to sign off, a model usually complies - but "usually" is the problem
@@ -244,7 +305,7 @@ def _with_signoff(letter: str, profile: dict) -> str:
     Only the tail is examined: the cut is anchored to a closing that is the whole
     line, in the last few lines, so body prose cannot be truncated.
     """
-    block = signoff(profile)
+    block = signoff(profile, include_details)
     if not letter:
         return block
     if not block:
@@ -269,6 +330,7 @@ def fetch_posting(url: str, allow_hosts=None) -> str:
     the page rather than working from the summary, through the same safe_get the
     enrich step uses, because the url still came from a stranger.
     """
+    from .enrich import USER_AGENT
     from .safefetch import UnsafeURL, safe_get
     from .utils import html_to_text
 
@@ -373,20 +435,57 @@ def draft_application(llm, model: str, job: dict, resume: str, profile: dict) ->
     # 6000 covered the letter and the answers. The tailored resume is a page of
     # prose on top of those, and a truncated reply fails to parse as JSON, taking
     # the whole draft down with it rather than just the resume.
-    data = llm.complete_json(model, SYSTEM, user, max_tokens=10000)
-    if not isinstance(data, dict):
+    #
+    # 10000 then failed on the postings that need this module most: a demanding
+    # employer writes five screening questions AND a ten-line requirements list,
+    # so the reply carrying an answer to each plus a one-page resume ran past the
+    # cap and came back unparseable. The budget has to cover the WORST posting,
+    # not the average one, because the average posting was never the problem.
+    data = llm.complete_json(model, SYSTEM, user, max_tokens=20000)
+    # An EMPTY dict is the parser's way of saying the reply was unusable - a
+    # truncated response, or prose where JSON was asked for. It must fail here,
+    # because every field below has a default, so carrying on builds a complete
+    # looking draft out of nothing: an empty letter, no requirements, no
+    # questions, and a sign-off. That renders, logs to the Drafts tab, and reads
+    # as an employer who asked for nothing rather than a call that failed.
+    if not isinstance(data, dict) or not data:
         return {}
 
     questions = [q for q in (data.get("questions") or []) if isinstance(q, dict)]
+    apply_method = str(data.get("apply_method") or "unknown")
+
+    # An in-site form puts a contact field beside the message; an email does not,
+    # because it arrives from the address already. So the same letter closes two
+    # different ways depending on where it is going.
+    on_form = apply_method in FORM_APPLY_METHODS
+
+    delivery = str(data.get("resume_delivery") or "unspecified").strip().lower()
+    missing = [str(s) for s in (data.get("missing_from_profile") or [])]
+    if delivery == "link" and not str(profile.get("resume_link") or "").strip():
+        # The posting asked for a URL and the profile has none to give. Better said
+        # here than discovered with the form already open.
+        missing.append(
+            "This posting wants the resume as a LINK, and profile.yaml has no "
+            "`resume_link:`. Host it and add one, or paste the resume instead."
+        )
+
     return {
-        "apply_method": str(data.get("apply_method") or "unknown"),
+        "apply_method": apply_method,
         "apply_email": str(data.get("apply_email") or ""),
+        "subject": str(data.get("subject") or "").strip(),
+        # Built here, not asked of the model - see contact_block.
+        "contact_info": contact_block(profile) if on_form else "",
         "special_instructions": [str(s) for s in (data.get("special_instructions") or [])],
-        "cover_letter": _with_signoff(str(data.get("cover_letter") or "").strip(), profile),
+        "cover_letter": _with_signoff(
+            str(data.get("cover_letter") or "").strip(), profile,
+            include_details=not on_form,
+        ),
         "questions": questions,
         "requirements": [r for r in (data.get("requirements") or []) if isinstance(r, dict)],
         "tailored_resume": str(data.get("tailored_resume") or "").strip(),
-        "missing_from_profile": [str(s) for s in (data.get("missing_from_profile") or [])],
+        "resume_delivery": delivery,
+        "resume_link": str(profile.get("resume_link") or "").strip(),
+        "missing_from_profile": missing,
         "injection_attempts": [str(s) for s in (data.get("injection_attempts") or [])],
         "_posting_chars": len(description),
     }
@@ -408,6 +507,9 @@ def render(job: dict, result: dict) -> str:
     if result.get("apply_email"):
         line += f" -> {result['apply_email']}"
     out.append(line)
+
+    if result.get("subject"):
+        out.append(f"SUBJECT:   {result['subject']}")
 
     if result.get("_posting_chars", 0) < SNIPPET_CHARS:
         out.append(
@@ -451,6 +553,12 @@ def render(job: dict, result: dict) -> str:
     out.append("-" * 72)
     out.append(result.get("cover_letter") or "(none generated)")
 
+    if result.get("contact_info"):
+        out.append("\n" + "-" * 72)
+        out.append("CONTACT INFO  (its own field on the form - from profile.yaml)")
+        out.append("-" * 72)
+        out.append(result["contact_info"])
+
     questions = result.get("questions") or []
     if questions:
         out.append("\n" + "-" * 72)
@@ -480,6 +588,20 @@ def render(job: dict, result: dict) -> str:
         out.append("\n" + "-" * 72)
         out.append("TAILORED RESUME  (from your resume only - nothing added)")
         out.append("-" * 72)
+        delivery = result.get("resume_delivery") or "unspecified"
+        out.append("HOW TO SEND IT: " + {
+            "attach": "the posting asks for an ATTACHMENT.",
+            "link": "the posting asks for a LINK.",
+            "paste": "the posting asks for it PASTED into the message.",
+        }.get(delivery, "the posting does not say how to send it."))
+        if delivery == "link" and result.get("resume_link"):
+            out.append(f"   your link: {result['resume_link']}")
+        if delivery in ("attach", "link") and result.get("apply_method") == "platform":
+            # onlinejobs.ph has no upload control at all, and most in-site apply
+            # boxes are the same. Saying so saves hunting the page for one.
+            out.append("   NOTE: this form has no upload field. Use a link, or paste"
+                       " the resume below into the message.")
+        out.append("")
         out.append(tailored)
 
     out.append("\n" + "=" * 72)

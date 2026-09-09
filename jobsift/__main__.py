@@ -204,6 +204,12 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
         try:
             result = draft_application(llm, config.models["score"], job, resume, profile)
             if not result:
+                # The call came back unusable - see draft_application. Say so in
+                # the cell: `continue` alone left the row on "drafting..." until
+                # some later pass reconciled it, which reads as still working.
+                log.warning("Draft for %s came back unusable; leaving it unticked-ready",
+                            url)
+                sheet.set_draft_status({url: "the model returned nothing usable - tick again to retry"})
                 continue
             sheet.append_draft(job, result)
             sheet.set_draft_status({url: sheet.draft_link() or "done"})

@@ -126,7 +126,12 @@ HEADERS = [
 # leaves the earlier attempt to compare against.
 DRAFT_HEADERS = [
     "drafted_at", "score", "job_title", "company", "url", "apply_via",
-    "salary_answer", "gaps", "cover_letter", "tailored_resume", "questions",
+    # `subject` and `contact_info` are their own fields on an in-site apply form
+    # (onlinejobs.ph puts a required SUBJECT above the message and a CONTACT INFO
+    # box below it), so they are their own columns here: the point of this tab is
+    # that a row can be pasted into the form field by field without editing.
+    "subject", "salary_answer", "gaps", "cover_letter", "contact_info",
+    "tailored_resume", "resume_delivery", "questions",
 ]
 
 
@@ -1155,11 +1160,14 @@ class SheetWriter:
             "company": job.get("company") or "",
             "url": hyperlink(job.get("url") or ""),
             "apply_via": result.get("apply_method") or "",
+            "subject": result.get("subject") or "",
             "salary_answer": salary,
             # Numbered so the count is visible without reading them.
             "gaps": "\n".join(f"{i}. {g}" for i, g in enumerate(gaps, 1)),
             "cover_letter": result.get("cover_letter") or "",
+            "contact_info": result.get("contact_info") or "",
             "tailored_resume": result.get("tailored_resume") or "",
+            "resume_delivery": result.get("resume_delivery") or "",
             "questions": "\n\n".join(questions),
         }
         self._write(self.draft_ws, [[str(row.get(h, "")) for h in DRAFT_HEADERS]],
