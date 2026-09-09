@@ -275,6 +275,12 @@ def main() -> None:
     )
     parser.add_argument("--profile", default="profile.yaml", help="Path to profile.yaml")
     parser.add_argument(
+        "--index-repos",
+        action="store_true",
+        help="Re-count the repos in config.yaml's `evidence:` block and exit. The "
+             "index is what lets a draft claim work the resume forgot to mention.",
+    )
+    parser.add_argument(
         "--sync-usage",
         action="store_true",
         help="Refresh profile.yaml's Claude Code figures from the kimlj.dev usage file "
@@ -411,6 +417,20 @@ def main() -> None:
     _filters.set_usd_rate(_rate)
     config.filters["usd_to_php"] = _rate
     log.info("USD to PHP: %.2f (%s)", _rate, _note)
+
+    if args.index_repos:
+        from .evidence import summarise, write_index
+
+        settings = config.evidence or {}
+        repos = settings.get("repos") or []
+        if not repos:
+            raise SystemExit("No `evidence.repos` in config.yaml to index.")
+        index = write_index(repos, settings.get("out", "./data/evidence.yaml"))
+        print(summarise(index))
+        missing = len(repos) - len(index)
+        print(f"\nindexed {len(index)} repo(s) into {settings.get('out')}"
+              + (f"; {missing} path(s) not found" if missing else ""))
+        return
 
     if args.sync_usage:
         from .usage import read_usage, sync_profile

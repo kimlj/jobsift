@@ -535,3 +535,22 @@ google_sheet:
   # target Sheet with the service account's email as an Editor. Keep this file
   # out of git — it's a secret.
   service_account_file: ./service-account.json
+
+# ── Repo evidence index (optional) ──
+#
+# What a draft may claim about you is limited to resume.txt and profile.yaml, by
+# design: the drafter must never invent a fact about the candidate. The cost of
+# that rule is that a real capability missing from those files is missing from
+# every application you send. It happened - a letter said "no row-level-security
+# experience" for someone with 35 policies in a repo on the same machine.
+#
+# So point this at your repos. Counting them gives the drafter a third trusted
+# source that cannot drift from the code, because it IS the code: migrations,
+# policies, indexes, commits, dependencies. Refresh with `--index-repos`; it also
+# runs before drafting.
+evidence:
+  enabled: true
+  out: ./data/evidence.yaml
+  repos:
+    - /path/to/your/repo
+    - /path/to/another
