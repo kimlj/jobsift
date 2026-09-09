@@ -228,9 +228,18 @@ def verify_one(llm, model: str, claim: str, sources: str) -> dict:
 
 def verify(llm, model: str, claims: list[str], sources: str) -> list[dict]:
     """Every claim, concurrently. Each call is independent by construction."""
-    claims = [c for c in claims if isinstance(c, str) and c.strip()][:MAX_CLAIMS]
+    claims = [c for c in claims if isinstance(c, str) and c.strip()]
     if not claims:
         return []
+
+    # Anything past the cap is REPORTED as unchecked, never dropped. Slicing the
+    # list silently was the same bug this module exists to prevent: a claim nobody
+    # verified and nobody was told about is worse than one that failed, because a
+    # failure at least reaches the person about to send it.
+    overflow, claims = claims[MAX_CLAIMS:], claims[:MAX_CLAIMS]
+    if overflow:
+        logger.warning("agents: %d claim(s) past the cap of %d were not verified",
+                       len(overflow), MAX_CLAIMS)
 
     # The first claim goes alone, and the rest fan out behind it. Launched all at
     # once they race the cache: several start before the first write lands, and
@@ -243,7 +252,12 @@ def verify(llm, model: str, claims: list[str], sources: str) -> list[dict]:
         with ThreadPoolExecutor(max_workers=min(6, len(claims) - 1)) as pool:
             rest = list(pool.map(
                 lambda c: verify_one(llm, model, c, sources), claims[1:]))
-    return [{"claim": c, **r} for c, r in zip(claims, [first, *rest])]
+    checked = [{"claim": c, **r} for c, r in zip(claims, [first, *rest])]
+    return checked + [
+        {"claim": c, "verdict": "unchecked",
+         "why": f"past the {MAX_CLAIMS}-claim verification cap"}
+        for c in overflow
+    ]
 
 
 def run(llm, models: dict, job: dict, posting: str, resume: str, profile: dict,
@@ -272,10 +286,14 @@ def run(llm, models: dict, job: dict, posting: str, resume: str, profile: dict,
             return {}
 
         checks = verify(llm, models["verify"], result.get("claims") or [], sources)
+        # Only a verdict the drafter can act on goes back to it. "unchecked" means
+        # nobody looked - a cap, or a verifier that returned nothing - and sending
+        # that back would have the drafter rewriting a claim on no evidence at all.
         rejections = [c for c in checks
                       if c.get("verdict") in ("overstated", "unsupported")]
-        logger.info("agents: round %d — %d claim(s), %d rejected",
-                    attempt + 1, len(checks), len(rejections))
+        logger.info("agents: round %d — %d claim(s), %d rejected, %d unchecked",
+                    attempt + 1, len(checks), len(rejections),
+                    sum(1 for c in checks if c.get("verdict") == "unchecked"))
         if not rejections:
             break
     else:
@@ -297,7 +315,11 @@ def run(llm, models: dict, job: dict, posting: str, resume: str, profile: dict,
         "apply_method": apply_method_for(
             str(job.get("url") or ""), str(extracted.get("apply_method") or "")),
         "verification": checks,
-        "unverified": rejections,
+        # Everything the human should look at before sending: what the verifier
+        # rejected, AND what nothing ever checked. Both reach the same list,
+        # because "unchecked" reads as approval unless it is said out loud.
+        "unverified": rejections + [c for c in checks
+                                    if c.get("verdict") == "unchecked"],
     }
 
 
