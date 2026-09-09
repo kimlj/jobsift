@@ -63,6 +63,7 @@ class Config:
     google_sheet: GoogleSheetConfig = field(default_factory=GoogleSheetConfig)
     # Repos that back application claims. See jobsift/evidence.py.
     evidence: dict = field(default_factory=dict)
+    multi_agent_drafting: bool = False
 
     @property
     def telegram_active(self) -> bool:
@@ -120,6 +121,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         resume_path=str(data.get("resume_path", "./resume.txt")),
         models=dict(data.get("models") or {}),
         evidence=dict(data.get("evidence") or {}),
+        multi_agent_drafting=bool(data.get("multi_agent_drafting", False)),
         telegram_enabled=bool(data.get("telegram_enabled", True)),
         scrape_sources=dict(data.get("scrape_sources") or {}),
         filters=dict(data.get("filters") or {}),

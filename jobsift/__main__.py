@@ -17,6 +17,36 @@ from .store import Store
 log = logging.getLogger("jobsift")
 
 
+def _make_draft(config, llm, job, posting, resume, profile):
+    """One draft, by whichever path config.yaml selects.
+
+    Both paths return the same shape, so everything downstream - render, the
+    Drafts tab, the status column - is unaware of which one ran.
+    """
+    if config.multi_agent_drafting:
+        from .agents import run, to_draft_result
+
+        evidence = ""
+        settings = config.evidence or {}
+        if settings.get("enabled"):
+            from .evidence import load_index, summarise
+
+            evidence = summarise(load_index(settings.get("out", "./data/evidence.yaml")))
+        models = {
+            "extract": config.models.get("extract", config.models["score"]),
+            "draft": config.models.get("draft", config.models["score"]),
+            "verify": config.models.get("verify", config.models["score"]),
+        }
+        raw = run(llm, models, job, posting, resume, profile, evidence)
+        if raw:
+            return to_draft_result(raw, profile, len(posting))
+        log.warning("Multi-agent drafting produced nothing; falling back to one call")
+
+    from .draft import draft_application
+
+    return draft_application(llm, config.models["score"], job, resume, profile)
+
+
 def _refresh_usage(profile_path: str) -> None:
     """Bring profile.yaml's Claude Code figures up to date before they are quoted.
 
@@ -91,7 +121,8 @@ def _run_draft(args, config) -> None:
         anthropic_api_key=config.anthropic_api_key,
     )
     resume = open(config.resume_path, encoding="utf-8").read()
-    result = draft_application(llm, config.models["score"], job, resume, profile)
+    posting = str(job.get("description_summary") or job.get("description") or "")
+    result = _make_draft(config, llm, job, posting, resume, profile)
     if not result:
         raise SystemExit("The model returned nothing usable.")
     print(render(job, result))
@@ -220,7 +251,7 @@ def _serve_sheet_drafts(args, config, llm, sheet, resume) -> int:
             # what the drafter most needs to see sits at the end of it.
             job = {**job, "description_summary": posting, "description": posting}
         try:
-            result = draft_application(llm, config.models["score"], job, resume, profile)
+            result = _make_draft(config, llm, job, available, resume, profile)
             if not result:
                 # The call came back unusable - see draft_application. Say so in
                 # the cell: `continue` alone left the row on "drafting..." until
