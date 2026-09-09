@@ -210,8 +210,14 @@ def draft(llm, model: str, posting: str, extracted: dict, resume: str,
 
 
 def verify_one(llm, model: str, claim: str, sources: str) -> dict:
-    user = f"{sources}\n\nTHE CLAIM TO CHECK:\n{claim}"
-    data = llm.complete_json(model, VERIFIER, user, max_tokens=800)
+    # The sources are byte-identical across every claim in a draft, so they belong
+    # in the cached system prefix rather than in the per-claim message. Measured
+    # before this: 14 claims cost 51,914 input tokens to carry about 3,500 tokens
+    # of actual content, because the resume, profile and repo index went out again
+    # for every one. Cache reads bill at a tenth of the input rate.
+    system = f"{VERIFIER}\n\n{sources}"
+    data = llm.complete_json(model, system, f"THE CLAIM TO CHECK:\n{claim}",
+                             max_tokens=800, cache_system=True)
     if not isinstance(data, dict) or not data:
         # A verifier that fails to answer must not read as approval. Unknown is
         # reported as its own verdict so the supervisor neither ships it silently
@@ -225,9 +231,19 @@ def verify(llm, model: str, claims: list[str], sources: str) -> list[dict]:
     claims = [c for c in claims if isinstance(c, str) and c.strip()][:MAX_CLAIMS]
     if not claims:
         return []
-    with ThreadPoolExecutor(max_workers=min(6, len(claims))) as pool:
-        results = list(pool.map(lambda c: verify_one(llm, model, c, sources), claims))
-    return [{"claim": c, **r} for c, r in zip(claims, results)]
+
+    # The first claim goes alone, and the rest fan out behind it. Launched all at
+    # once they race the cache: several start before the first write lands, and
+    # each of those pays the write price for the same prefix. One call ahead of
+    # the pack turns that into one write and N-1 reads, for the cost of a single
+    # call's latency.
+    first = verify_one(llm, model, claims[0], sources)
+    rest: list[dict] = []
+    if len(claims) > 1:
+        with ThreadPoolExecutor(max_workers=min(6, len(claims) - 1)) as pool:
+            rest = list(pool.map(
+                lambda c: verify_one(llm, model, c, sources), claims[1:]))
+    return [{"claim": c, **r} for c, r in zip(claims, [first, *rest])]
 
 
 def run(llm, models: dict, job: dict, posting: str, resume: str, profile: dict,
