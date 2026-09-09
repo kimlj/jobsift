@@ -13,6 +13,21 @@ portfolio: https://yourdomain.dev
 github: https://github.com/yourhandle
 linkedin: https://linkedin.com/in/yourhandle
 
+# Two different places your contact details appear, so two lists.
+#
+# contact_fields fills the CONTACT INFO box that in-site apply forms put beside the
+# message (onlinejobs.ph has one). It includes `email`, because a form submission
+# does not arrive from your address the way an emailed application does, and an
+# employer who cannot reply is the failure this box exists to prevent.
+#
+# signoff_fields is the bottom of an emailed letter, where the email is already in
+# the From header and a second copy is noise. Default: [phone, portfolio].
+#
+# Either may be set to [] for "name only". Listing a field left blank above prints
+# nothing, so an unused `github:` costs you no dangling label.
+contact_fields: [email, phone, portfolio, github, linkedin]
+# signoff_fields: [phone, portfolio]
+
 # Education. Be accurate — this answers "do you have a degree" questions.
 education:
   highest: none          # none | some_college | vocational | associate | bachelor | master
