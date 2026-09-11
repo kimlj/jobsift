@@ -505,9 +505,15 @@ class _Wizard:
         self.config_path, self.env_path, self.profile_path = config_path, env_path, profile_path
         self.ask, self.ask_secret, self.checks, self.out = ask, ask_secret, checks, out
         self.examples = examples
-        docker = bool(os.environ.get("JOBSIFT_DOCKER"))
-        self.cmd = "docker compose run --rm jobsift" if docker else "python -m jobsift"
-        self.keep_running = "docker compose up -d" if docker else "python -m jobsift"
+        # The launcher the installer put beside the code, not `python -m jobsift`,
+        # which only works with the virtual environment activated: the first real
+        # run from the one-line install printed commands its reader could not use.
+        if os.environ.get("JOBSIFT_DOCKER"):
+            self.cmd = "docker compose run --rm jobsift"
+            self.keep_running = "docker compose up -d"
+        else:
+            self.cmd = ".\\jobsift.cmd" if os.name == "nt" else "./jobsift.sh"
+            self.keep_running = self.cmd
 
     # small pieces --------------------------------------------------------
 

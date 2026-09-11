@@ -5,16 +5,16 @@ welcome; so is a bug report that just says what you expected and what happened.
 
 ## Before you send a change
 
-There is no test suite. There are sixteen `dryrun_*.py` scripts instead, and they
+There is no test suite. There are seventeen `dryrun_*.py` scripts instead, and they
 are the closest thing to one. Each answers a single question about behaviour and
 prints what it found rather than asserting — the point is that you read the
 output and judge it, because most of the interesting failures here are "this
 scored 22 on a snippet" rather than "this raised an exception".
 
-**Ten run with no network and no API key.** Start here, and if your change
+**Eleven run with no network and no API key.** Start here, and if your change
 touches filtering, dedup, the applied detector, the sheet, the evidence index,
-the residential worker, the inbox, setup or sender suggestions, these are the
-ones that matter:
+the residential worker, the inbox, setup, sender suggestions or the employer
+check, these are the ones that matter:
 
 ```bash
 python dryrun_dedup.py       # normalised title::company dedup — does it over- or under-merge?
@@ -27,9 +27,10 @@ python dryrun_worker.py      # the residential worker: dedup across machines, re
 python dryrun_setup.py       # --setup: writes only what it was told, keeps comments, prints no secret
 python dryrun_suggest_senders.py  # --suggest-senders: the right boards, never Gmail, never a known one
 python dryrun_inbox.py       # a pass: nothing marked read, nothing downloaded twice, receipts cost nothing
+python dryrun_vet.py         # --vet: the employer check lands on every copy of a posting, and replaces the last one
 ```
 
-Each of the ten exits non-zero when a case misbehaves, so `pytest` runs all of
+Each of the eleven exits non-zero when a case misbehaves, so `pytest` runs all of
 them at once (`pip install -r requirements-dev.txt` first), and GitHub Actions
 runs the same on every push and pull request. A red check on your PR means one
 of these printed FAIL; the log shows which case.
@@ -53,6 +54,34 @@ so they will make real requests:
 
 An API key means the run costs money. A network run means real traffic to a job
 board, so do not loop them.
+
+## Changing the installers or setup
+
+`install.sh` and `install.ps1` are the first thing a new user runs, so a mistake
+in them is the whole first impression. Before pushing a change to either:
+
+```bash
+sh -n install.sh
+powershell -NoProfile -Command "$null = [scriptblock]::Create((Get-Content -Raw install.ps1))"
+```
+
+After pushing, run the real one-liner in a clean Linux container, with setup
+skipped (the one-liner downloads from `main`, so test what you pushed):
+
+```bash
+docker run --rm -e JOBSIFT_SKIP_SETUP=1 python:3.12-slim sh -c \
+  'apt-get update -qq && apt-get install -y -qq git curl >/dev/null &&
+   curl -fsSL https://raw.githubusercontent.com/kimlj/jobsift/main/install.sh | sh &&
+   ~/jobsift/jobsift.sh --help && ls -l ~/jobsift/jobsift.sh'
+```
+
+On Windows, commit shell scripts with `git add --chmod=+x install.sh jobsift.sh`
+and check that `git ls-tree HEAD install.sh jobsift.sh` says `100755`: a commit
+that names its paths takes the mode from the Windows working tree, which has no
+executable bit, and the launcher then fails on Linux with "permission denied".
+
+A change to setup's questions needs the matching lines in `dryrun_setup.py`,
+which scripts the whole conversation, prompt by prompt.
 
 ## Testing a source adapter without hitting the board
 

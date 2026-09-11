@@ -449,7 +449,9 @@ with tempfile.TemporaryDirectory() as tmp:
           "ph.indeed.com" in printed and "terms forbid automated access" in printed)
     check("no stale to-do: the resume is set, and the evidence index is off",
           "is still the example" not in printed and "evidence.roots" not in printed)
-    check("and what to run next", "python -m jobsift --suggest-senders" in printed)
+    check("and what to run next, with the launcher a new user actually has",
+          ("jobsift.sh --suggest-senders" in printed or "jobsift.cmd --suggest-senders" in printed)
+          and "python -m jobsift" not in printed)
 
     print("\nthe same again, pressing Enter every time\n" + "-" * 78)
     before = {name: (folder / name).read_bytes() for name in ("config.yaml", ".env")}

@@ -415,8 +415,8 @@ Never commit real tokens. If one leaks into git history, rotate it.
 
 ### Contributing
 
-There is no test suite; there are sixteen `dryrun_*.py` scripts, ten of which run
-offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for which need a key or network,
+There is no test suite; there are seventeen `dryrun_*.py` scripts, eleven of which
+run offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for which need a key or network,
 and how to test a source adapter without hitting a live board.
 
 ### License
