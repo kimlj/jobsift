@@ -24,6 +24,29 @@ everything except that one source. First live worker pass: 978 listings read, 36
 kept, 363 already on the core, so one detail page read instead of 364. The
 droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
 
+## Next up (listed 2026-09-11)
+
+- [ ] **Set up alerts on Kalibrr and Bossjob** (owner, about 10 minutes), pointed at
+      GMAIL_ADDRESS. Both are in `known_senders` and sent nothing in the 30 days
+      `--suggest-senders` read, so they were never subscribed. VirtualStaff is the
+      same, if it is wanted. Run `--suggest-senders` a week later to confirm they
+      arrive. Remotive needs no email: `remote_feeds` already reads its API.
+- [ ] **We Work Remotely reader.** Its feed is RSS
+      (`weworkremotely.com/remote-jobs.rss`), which `remote_feeds` cannot parse;
+      nodesk is the same shape, so do both. The stdlib's xml.etree is enough, so no
+      new dependency. The region field has to go into `candidate_location`, or the
+      geography rule reads it leniently (see *Two things himalayas taught us*).
+- [ ] **Delete the backup copies of secrets and config after a week of running**
+      (from 2026-09-18): on the droplet `.env.pre-token-20260911` and
+      `config.yaml.pre-linkedin-20260911`, on the laptop
+      `config.yaml.pre-linkedin-20260911`. The pre-worker backups stay; they are the
+      rollback for the split.
+- [ ] **Optional: re-read the LinkedIn alerts missed this month.** Three from
+      `jobalerts-noreply@linkedin.com` were filed as non-job mail before that
+      address was added. Removing their uids from `processed_emails` and running
+      one pass with a 14-day lookback would read them. Anything older is past
+      `max_age_days` anyway.
+
 ## Waiting on external
 
 - [x] **Working Nomads — confirmed end to end 2026-08-29.** Subscribed 2026-08-28
