@@ -1,8 +1,8 @@
-"""Does --suggest-senders name the boards config.yaml is missing, and nothing else?
+"""Do --suggest-senders and the daily check name the boards config.yaml is missing, and nothing else?
 
 No network and no account. The inbox below is invented, in the shapes a real one
 has, and the IMAP half is fed a canned server answer. What can go wrong is all
-in the grouping, so that is what is attacked:
+in the grouping and in what gets written, so that is what is attacked:
 
   * a board sending from a subdomain must be suggested as its base domain, and a
     board on a two-part suffix (jobsdb.com.ph) must not become `com.ph`,
@@ -11,18 +11,30 @@ in the grouping, so that is what is attacked:
     be suggested one address at a time, never as the whole domain,
   * personal mail about a job, from Gmail, must never be suggested at all,
   * one coincidental subject from a newsletter is not a job board,
-  * and once the suggested lines are pasted, the report must go quiet: the
-    lines it prints have to be the lines that work.
+  * once the suggested lines are pasted, the report must go quiet: the lines it
+    prints have to be the lines that work,
+  * saying yes writes exactly those lines into config.yaml and moves nothing
+    else, not one comment,
+  * the daily check adds only what is clearly a board, at most once a day, never
+    twice, and never again once config.yaml says `ignore`.
 
     python dryrun_suggest_senders.py
 """
 
 import base64
+import shutil
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import yaml
 
+from jobsift.classify import classify
+from jobsift.config import known_senders_for
 from jobsift.gmail import parse_header_rows
-from jobsift.senders import base_domain, render, suggest
+from jobsift.onboard import SetupError
+from jobsift.senders import (add_to_config, automatic, base_domain, learn, lines_to_add,
+                             notice, read_learned, render, suggest)
 
 KNOWN = {"indeed.com": "indeed", "jobs-noreply@linkedin.com": "linkedin",
          "foundit.com": "foundit"}
@@ -130,11 +142,130 @@ check("they parse as YAML", isinstance(pasted, dict), paste)
 check("and say exactly the suggestions",
       pasted == {"kalibrr.com": "kalibrr", "jobsdb.com.ph": "jobsdb",
                  "jobs-listings@linkedin.com": "linkedin"}, pasted)
+check("they are what a yes would write", pasted == lines_to_add(report), lines_to_add(report))
 check("it says nothing was changed", text.rstrip().endswith("Nothing was changed."))
+check("but not when a question follows",
+      not render(report, 30, ask=True).rstrip().endswith("Nothing was changed."))
 
 again = suggest(INBOX, {**KNOWN, **pasted}, KEYWORDS, own_address=OWN)
 check("pasted in, the next report suggests nothing", again["add"] == [],
       [s["keys"] for s in again["add"]])
+
+print("\ntaking a sender back with `ignore`\n" + "-" * 78)
+IGNORED = {**KNOWN, "kalibrr.com": "ignore"}
+check("an ignored sender's mail is not a job email",
+      classify("alerts@mail.kalibrr.com", "Python Engineer", IGNORED, KEYWORDS) == (False, "ignore"))
+check("not even with a keyword in the subject",
+      classify("alerts@mail.kalibrr.com", "5 new jobs for you", IGNORED, KEYWORDS)[0] is False)
+for order, senders in [("address first", {"jobs-noreply@linkedin.com": "linkedin", "linkedin.com": "ignore"}),
+                       ("domain first", {"linkedin.com": "ignore", "jobs-noreply@linkedin.com": "linkedin"})]:
+    check(f"the longer key wins ({order})",
+          classify("jobs-noreply@linkedin.com", "Engineer", senders, KEYWORDS) == (True, "linkedin")
+          and classify("updates-noreply@linkedin.com", "hiring!", senders, KEYWORDS)[0] is False)
+quiet = suggest(INBOX, IGNORED, KEYWORDS, own_address=OWN)
+check("an ignored board is not suggested again",
+      "kalibrr.com" not in {s["base"] for s in quiet["add"]}, [s["base"] for s in quiet["add"]])
+check("nor named as a known sender that sent nothing", "kalibrr.com" not in quiet["silent"],
+      quiet["silent"])
+
+scratch = Path(tempfile.mkdtemp(prefix="jobsift-senders-"))
+try:
+    print("\none keypress: writing config.yaml\n" + "-" * 78)
+    cfg = scratch / "config.yaml"
+    shutil.copy("config.example.yaml", cfg)
+    before = cfg.read_text(encoding="utf-8")
+    entries = lines_to_add(report)
+    added = add_to_config(cfg, {**entries, "indeed.com": "not_indeed"})
+    after = cfg.read_text(encoding="utf-8")
+    old, new = yaml.safe_load(before), yaml.safe_load(after)
+
+    def comments(text):
+        return [line for line in text.splitlines() if line.strip().startswith("#")]
+
+    missing = sorted(k for k in entries if k not in old["known_senders"])
+    check("it writes the suggestions the file lacks", sorted(added) == missing, (added, missing))
+    check("(the example already has kalibrr.com)", "kalibrr.com" not in added)
+    check("they load back as known_senders",
+          all(new["known_senders"].get(k) == v for k, v in entries.items()))
+    check("a key config.yaml has is left as it was", new["known_senders"]["indeed.com"] == "indeed")
+    check("every comment is kept", comments(before) == comments(after))
+    check("nothing outside known_senders moved",
+          {k: v for k, v in old.items() if k != "known_senders"}
+          == {k: v for k, v in new.items() if k != "known_senders"})
+    check("said yes again, it adds nothing", add_to_config(cfg, entries) == [])
+    check("and the next report is quiet",
+          suggest(INBOX, new["known_senders"], KEYWORDS, own_address=OWN)["add"] == [])
+
+    crlf = scratch / "crlf.yaml"
+    crlf.write_bytes(before.replace("\n", "\r\n").encode("utf-8"))
+    add_to_config(crlf, entries)
+    raw = crlf.read_bytes()
+    check("a Windows (CRLF) config stays CRLF", raw.count(b"\n") == raw.count(b"\r\n"))
+
+    bare = scratch / "bare.yaml"
+    bare.write_text("poll_interval_seconds: 300\n", encoding="utf-8")
+    try:
+        add_to_config(bare, entries)
+        refused = False
+    except SetupError:
+        refused = True
+    check("no known_senders section: refused, not guessed", refused)
+    check("and the file is untouched", bare.read_text(encoding="utf-8") == "poll_interval_seconds: 300\n")
+
+    print("\nby itself: what is sure enough to add\n" + "-" * 78)
+    check("only the board with 3 alerts and nothing else",
+          [p["key"] for p in automatic(report, KNOWN)] == ["kalibrr.com"],
+          [p["key"] for p in automatic(report, KNOWN)])
+    MIXED = ([mail("jobs@boardx.io", f"New jobs for developer {n}") for n in range(3)]
+             + [mail("news@boardx.io", f"Our quarterly update {n}") for n in range(3)]
+             + [mail("digest@careerblog.net", f"Careers: {n} roles open") for n in range(3)]
+             + [mail("digest@careerblog.net", f"Tips for your CV {n}") for n in range(2)])
+    mixed = suggest(MIXED, {}, KEYWORDS)
+    picked = [p["key"] for p in automatic(mixed, {})]
+    check("a board's jobs address, not its newsletter", picked == ["jobs@boardx.io"], picked)
+    check("3 of 5 is suggested, but not added unasked",
+          "careerblog.net" in {s["base"] for s in mixed["add"]} and "careerblog.net" not in picked)
+
+    print("\nby itself: the daily check\n" + "-" * 78)
+    db = scratch / "data" / "jobs.db"
+    learned = scratch / "data" / "learned_senders.yaml"
+    reads = []
+
+    def fetch(days):
+        reads.append(days)
+        return INBOX
+
+    t0 = datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)
+    first = learn(learned, fetch, dict(KNOWN), KEYWORDS, OWN, now=t0) or []
+    check("the first check adds the clear board", [p["key"] for p in first] == ["kalibrr.com"],
+          [p["key"] for p in first])
+    check("from 30 days of headers", reads == [30], reads)
+    state = read_learned(learned)
+    check("it is kept in data/learned_senders.yaml", state["senders"] == {"kalibrr.com": "kalibrr"},
+          state["senders"])
+    check("with the reason", "3 of 3" in state["why"].get("kalibrr.com", ""), state["why"])
+    check("and how to take it back", "kalibrr.com: ignore" in learned.read_text(encoding="utf-8"))
+    check("not due again within the day",
+          learn(learned, fetch, dict(KNOWN), KEYWORDS, OWN, now=t0 + timedelta(hours=23)) is None
+          and len(reads) == 1, reads)
+
+    merged = known_senders_for({"known_senders": KNOWN}, str(db))
+    check("the senders the service loads include it", merged.get("kalibrr.com") == "kalibrr")
+    check("a day later nothing is added twice",
+          learn(learned, fetch, merged, KEYWORDS, OWN, now=t0 + timedelta(hours=25)) == [])
+
+    taken = known_senders_for({"known_senders": IGNORED}, str(db))
+    check("config.yaml's ignore beats the learned file", taken.get("kalibrr.com") == "ignore")
+    check("so its mail is not read",
+          classify("alerts@mail.kalibrr.com", "5 new jobs", taken, KEYWORDS)[0] is False)
+    check("and the next check does not add it back",
+          learn(learned, fetch, taken, KEYWORDS, OWN, now=t0 + timedelta(hours=50)) == [])
+
+    message = notice(first)
+    check("the Telegram notice names it", "kalibrr.com" in message and "3 of 3" in message)
+    check("and says how to undo it", "kalibrr.com: ignore" in message)
+finally:
+    shutil.rmtree(scratch, ignore_errors=True)
 
 print("\nreading the server's answer\n" + "-" * 78)
 encoded = base64.b64encode("✅ New jobs for you".encode()).decode()

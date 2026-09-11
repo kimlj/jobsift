@@ -84,12 +84,35 @@ class Config:
     worker: dict = field(default_factory=dict)
     # Last, with a default, so nothing that builds a Config positionally breaks.
     deepseek_api_key: str = ""
+    # The daily check that adds clear job boards by itself. See senders.learn.
+    learn_senders: bool = True
 
     @property
     def telegram_active(self) -> bool:
         return bool(
             self.telegram_enabled and self.telegram_bot_token and self.telegram_chat_id
         )
+
+
+def known_senders_for(data: dict, database_path: str) -> dict:
+    """config.yaml's known_senders plus the ones jobsift added by itself.
+
+    config.yaml wins on a key both name, which is how a learned sender is taken
+    back: `kalibrr.com: ignore` there. Read at start-up and again every pass, so
+    an edit - or --suggest-senders run while the service is up - takes effect
+    without a restart.
+    """
+    from .senders import learned_path, read_learned
+
+    senders = dict(data.get("known_senders") or {})
+    for key, label in read_learned(learned_path(database_path))["senders"].items():
+        senders.setdefault(key, label)
+    return senders
+
+
+def reload_known_senders(config_path: str, database_path: str) -> dict:
+    data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    return known_senders_for(data, database_path)
 
 
 def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Config:
@@ -130,7 +153,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         poll_interval_seconds=int(data.get("poll_interval_seconds", 300)),
         lookback_days=int(data.get("lookback_days", 2)),
         first_run_lookback_days=int(data.get("first_run_lookback_days", 7)),
-        known_senders=dict(data.get("known_senders") or {}),
+        known_senders=known_senders_for(data, str(data.get("database_path", "./data/jobs.db"))),
         job_subject_keywords=list(data.get("job_subject_keywords") or []),
         skip_link_domains=list(data.get("skip_link_domains") or []),
         score_threshold=int(data.get("score_threshold", 60)),
@@ -150,6 +173,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         filters=dict(data.get("filters") or {}),
         scrape_interval_seconds=int(data.get("scrape_interval_seconds") or 1200),
         google_sheet=google_sheet,
+        learn_senders=bool(data.get("learn_senders", True)),
     )
 
     # Validate the API key for the chosen provider + Gmail creds.

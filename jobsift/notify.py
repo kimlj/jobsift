@@ -128,3 +128,16 @@ def send_telegram(bot_token: str, chat_id: str, record: dict, options: dict | No
         resp.raise_for_status()
     except Exception:
         logger.exception("Telegram send failed")
+
+
+def send_text(bot_token: str, chat_id: str, text: str) -> None:
+    """A plain message, for things jobsift did rather than jobs it found."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            data={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except Exception:
+        logger.exception("Telegram send failed")

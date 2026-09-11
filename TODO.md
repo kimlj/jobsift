@@ -200,6 +200,18 @@ In order:
       never a freemail domain, and also names silent known senders and senders that
       get in only on a subject keyword. `dryrun_suggest_senders.py`. Shipped with
       `--setup` (`jobsift/onboard.py`) and a Docker image, the rest of the onboarding gap.
+- [x] **New alert senders without editing config — done 2026-09-11.** Two ways.
+      `--suggest-senders` ends with one question, *Add these to config.yaml? [Y/n]*,
+      and writes the lines keeping every comment (only at a keyboard; piped, it
+      still only prints). And the running service checks once a day and adds, by
+      itself, senders that are clearly boards (3+ job-alert emails, 80%+ of their
+      mail; never freemail, never a domain config.yaml narrowed to addresses) to
+      `data/learned_senders.yaml`, merged into known_senders at load, and says so
+      on Telegram. Not config.yaml, because the systemd unit may write only data/
+      and logs/. Taken back with the label `ignore`, which classify now honours
+      (the longest matching key wins, and an ignored sender is not let in by a
+      subject keyword). known_senders is re-read every pass, so neither needs a
+      restart. `learn_senders: false` turns the daily check off.
 - [x] **Two-phase IMAP fetch — the part that mattered, done 2026-09-11.** A message
       already processed is no longer downloaded at all, and every fetch is a
       read-only `BODY.PEEK[]`, so nothing is marked read any more. Still open: mail

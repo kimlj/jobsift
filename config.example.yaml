@@ -236,8 +236,12 @@ filters:
 
 # ── Which senders count as job alerts ──
 # You subscribe to alerts on each board yourself, pointed at your GMAIL_ADDRESS.
-# This list just tells the watcher which incoming senders are job emails.
+# This list tells the watcher which incoming senders are job emails.
 #   domain: label      (label becomes the job's "source")
+# You do not have to keep it complete: a board missing from it is found for you
+# (learn_senders, below), and --suggest-senders shows and adds them sooner. The
+# label `ignore` means "never a job alert"; it is how you take back a sender
+# jobsift added by itself. Where two keys match a sender, the longer one wins.
 known_senders:
   indeed.com: indeed
   # LinkedIn's alerts come from two addresses, and the rest of linkedin.com is
@@ -253,6 +257,14 @@ known_senders:
   workingnomads.com: workingnomads
   onlinejobs.ph: onlinejobs_ph
   virtualstaff.ph: virtualstaff_ph
+
+# Once a day the running service reads the sender and subject of the last 30
+# days of inbox mail (nothing opened or marked read) and starts reading senders
+# that are clearly job boards: at least 3 job-alert emails, and at least 4 in 5
+# of everything they sent. It says on Telegram what it added and keeps them in
+# data/learned_senders.yaml. Each email from a sender it reads costs one AI call,
+# which is why the bar is high. false to decide every sender yourself.
+learn_senders: true
 
 # Fallback: if the sender isn't listed above but the subject contains one of these
 # phrases, still treat it as a job email.

@@ -92,7 +92,7 @@ Open the `jobsift` folder in PowerShell or Terminal:
 |---|---|---|
 | `.\jobsift.cmd --once --no-telegram` | `./jobsift.sh --once --no-telegram` | One check that alerts nobody. **Do this first** |
 | `.\jobsift.cmd --export jobs.csv` | `./jobsift.sh --export jobs.csv` | Every job it found, its score, and why each was kept or dropped, in a file Excel opens |
-| `.\jobsift.cmd --suggest-senders` | `./jobsift.sh --suggest-senders` | Which of your emails look like job alerts it does not know yet |
+| `.\jobsift.cmd --suggest-senders` | `./jobsift.sh --suggest-senders` | Which of your emails look like job alerts it does not know yet, and adds them if you say yes. It also finds clear ones by itself once a day and tells you on Telegram |
 | `.\jobsift.cmd --setup` | `./jobsift.sh --setup` | Change any setup answer |
 | `.\jobsift.cmd` | `./jobsift.sh` | Keep running, checking every 5 minutes |
 
@@ -281,7 +281,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 python -m jobsift --setup         # makes the files, asks for each account, checks each one works
-python -m jobsift --suggest-senders   # which of your emails are job alerts it does not know yet
+python -m jobsift --suggest-senders   # which of your emails are job alerts it does not know yet; offers to add them
 cp career.example.yaml career.yaml    # optional: what your repos are, with sources
 
 python -m jobsift --index-repos   # count your repos into the brief drafts are written from
@@ -349,7 +349,7 @@ jobsift/            the app
   utils.py              shared helpers (title/company normalisation, job_key)
   pipeline.py           orchestration
   onboard.py            --setup: connect each account and check it works
-  senders.py            --suggest-senders: alert senders config.yaml is missing
+  senders.py            alert senders config.yaml is missing: --suggest-senders, and the daily add
   sources/              non-email sources (remote feeds on; the rest opt-in)
     jobstreet.py        Jobstreet PH via SEEK's public search API
     remote_feeds.py     remotive / Working Nomads / himalayas / jobicy

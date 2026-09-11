@@ -25,7 +25,7 @@ python dryrun_closed.py      # staging a row Closed: does the right row move, in
 python dryrun_evidence.py    # the evidence index: miscounts, wrong identities, stale sources
 python dryrun_worker.py      # the residential worker: dedup across machines, retries, the pinned key
 python dryrun_setup.py       # --setup: writes only what it was told, keeps comments, prints no secret
-python dryrun_suggest_senders.py  # --suggest-senders: the right boards, never Gmail, never a known one
+python dryrun_suggest_senders.py  # --suggest-senders and the daily add: the right boards, never Gmail, never twice, ignore wins
 python dryrun_inbox.py       # a pass: nothing marked read, nothing downloaded twice, receipts cost nothing
 python dryrun_vet.py         # --vet: the employer check lands on every copy of a posting, and replaces the last one
 ```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -557,12 +558,36 @@ def main() -> None:
                 f"{config.worker.get('ssh') or 'worker.ssh'}: run it there.")
 
     if args.suggest_senders is not None:
-        from .senders import render, suggest
+        from .onboard import SetupError
+        from .senders import add_to_config, lines_to_add, render, suggest
 
         headers = GmailReader(config.gmail_address, config.gmail_app_password).fetch_headers(
             args.suggest_senders)
-        print(render(suggest(headers, config.known_senders, config.job_subject_keywords,
-                             own_address=config.gmail_address), args.suggest_senders))
+        report = suggest(headers, config.known_senders, config.job_subject_keywords,
+                         own_address=config.gmail_address)
+        entries = lines_to_add(report)
+        # Asked only at a keyboard. Piped or scheduled, it prints and changes nothing,
+        # as it always did.
+        ask = bool(entries) and sys.stdin.isatty()
+        print(render(report, args.suggest_senders, ask=ask))
+        if not ask:
+            return
+        which = "it" if len(entries) == 1 else f"these {len(entries)}"
+        try:
+            answer = input(f"\nAdd {which} to config.yaml? [Y/n] ").strip().lower()
+        except EOFError:
+            answer = "n"
+        if answer not in ("", "y", "yes"):
+            print("Nothing was changed. Paste the lines you want under known_senders: yourself.")
+            return
+        try:
+            added = add_to_config(args.config, entries)
+        except (OSError, SetupError) as exc:
+            print(f"Could not edit {args.config} ({exc}), so nothing was changed. "
+                  "Paste the lines above under known_senders: instead.")
+            return
+        print(f"Added {len(added)} line(s) under known_senders in {args.config}. "
+              "If jobsift is running, it starts reading them on its next pass.")
         return
 
     # The USD rate multiplies every dollar-quoted listing, so it decides what
@@ -965,6 +990,40 @@ def main() -> None:
             # worker replaces it atomically, so a pass never reads half a file.
             with open(config.resume_path, encoding="utf-8") as fh:
                 resume = fh.read()
+
+            # known_senders too, so a line --suggest-senders added, or an `ignore`
+            # taking back a sender added by itself, needs no restart. A config.yaml
+            # caught mid-edit keeps the senders already loaded.
+            try:
+                from .config import reload_known_senders
+
+                config.known_senders = reload_known_senders(args.config, config.database_path)
+            except Exception:
+                log.exception("Could not re-read known_senders; keeping the ones loaded")
+
+            # Once a day, start reading senders that are clearly job boards, so a
+            # new user never has to learn known_senders exists (senders.learn).
+            # Before the pass, so today's alerts from them are read today. Not on
+            # --once, which is for trying things and should not write data/.
+            if config.learn_senders and not args.once:
+                try:
+                    from .senders import learn, learned_path, notice
+
+                    added = learn(learned_path(config.database_path), gmail.fetch_headers,
+                                  config.known_senders, config.job_subject_keywords,
+                                  own_address=config.gmail_address)
+                    if added:
+                        for picked in added:
+                            config.known_senders.setdefault(picked["key"], picked["label"])
+                        log.info("Now reading job alerts from %s (found in the inbox)",
+                                 ", ".join(picked["key"] for picked in added))
+                        if telegram_send is not None:
+                            from .notify import send_text
+
+                            send_text(config.telegram_bot_token, config.telegram_chat_id,
+                                      notice(added))
+                except Exception:
+                    log.exception("Looking for new job-alert senders failed; continuing")
 
             # Both of these read cells the user edited, and both run before the
             # pass rather than after it. A pass spends minutes in the scrape

@@ -490,7 +490,7 @@ SOURCES_HELP = """\
     LinkedIn    https://www.linkedin.com/jobs
     Jobstreet   https://ph.jobstreet.com
     more boards, and what each one sends: docs/job-alert-sources.md
-  A few days later, {cmd} --suggest-senders shows which alerts are arriving.
+  It notices new alert senders by itself; {cmd} --suggest-senders shows them now.
 
   It can also read four free remote-job feeds (Remotive, Working Nomads, Himalayas
   and Jobicy) with no sign-up, keeping only remote jobs open to someone in the
