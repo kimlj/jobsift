@@ -22,8 +22,10 @@ new user. What is attacked:
 
 import copy
 import os
+import re
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 from dotenv import dotenv_values
@@ -61,7 +63,8 @@ edits = [
     (("google_sheet", "enabled"), True),
     (("google_sheet", "sheet_id"), SHEET_ID),
     (("google_sheet", "service_account_file"), "./keys/robot key.json"),
-    (("models", "extract"), "gpt-4o-mini"),
+    (("worker", "ssh"), "kim@203.0.113.7"),
+    (("filters", "skip_senior"), True),
 ]
 text = original_text
 for path, value in edits:
@@ -77,8 +80,8 @@ check("same number of lines", len(text.splitlines()) == len(original_text.splitl
 comments = [line for line in original_text.splitlines() if line.lstrip().startswith("#")]
 check("every comment line survives",
       comments == [line for line in text.splitlines() if line.lstrip().startswith("#")])
-extract_line = next(line for line in text.splitlines() if line.strip().startswith("extract:"))
-check("the comment after a value survives", "# pull job listings" in extract_line, extract_line)
+ssh_line = next(line for line in text.splitlines() if line.strip().startswith("ssh: "))
+check("the comment after a value survives", "# user@host of the core" in ssh_line, ssh_line)
 
 for path in [("google_sheet", "worksheet_closed"), ("nosuchblock", "enabled")]:
     try:
@@ -86,6 +89,17 @@ for path in [("google_sheet", "worksheet_closed"), ("nosuchblock", "enabled")]:
         check(f"{'.'.join(path)} is refused, not appended", False)
     except SetupError:
         check(f"{'.'.join(path)} is refused, not appended", True)
+
+# A config written before the presets has no switches. Setup adds them rather
+# than refusing, and only when asked to.
+older = re.sub(r"(?m)^\s+skip_(junior|senior|assistant_roles|call_centres):.*\n", "", original_text)
+added = yaml.safe_load(set_yaml_value(older, ("filters", "skip_senior"), True, insert=True))
+before_filters = yaml.safe_load(older)["filters"]
+check("insert adds a switch an older config lacks",
+      added["filters"].get("skip_senior") is True
+      and {k: v for k, v in added["filters"].items() if k != "skip_senior"} == before_filters)
+check("and a missing top-level key goes at the end",
+      yaml.safe_load(set_yaml_value("a: 1\n", ("b",), 2, insert=True)) == {"a": 1, "b": 2})
 
 crlf = set_yaml_value(original_text.replace("\n", "\r\n"), ("llm_provider",), "openai")
 check("a CRLF file stays CRLF", crlf.count("\n") == crlf.count("\r\n"))
@@ -124,6 +138,86 @@ for raw, want in [
     (SHEET_ID, SHEET_ID), ("my job sheet", None), ("", None),
 ]:
     check(f"{raw[:48] or '(empty)'}", parse_sheet_id(raw) == want, parse_sheet_id(raw))
+
+
+# ── presets ──────────────────────────────────────────────────────────────────
+print("\npresets\n" + "-" * 78)
+from jobsift.filters import check as passes  # noqa: E402
+
+
+def posting(title, company="Acme"):
+    return {"title": title, "company": company}
+
+
+check("skip_junior drops a junior title",
+      not passes(posting("Junior Python Developer"), {"skip_junior": True})[0])
+check("and keeps it when off", passes(posting("Junior Python Developer"), {"skip_junior": False})[0])
+check("a senior title stays unless skip_senior is on",
+      passes(posting("Senior Backend Engineer"), {"skip_junior": True})[0]
+      and not passes(posting("Senior Backend Engineer"), {"skip_senior": True})[0])
+check("skip_call_centres drops a named BPO",
+      not passes(posting("Developer", "Concentrix Philippines"), {"skip_call_centres": True})[0])
+check("an own list still works beside the presets",
+      not passes(posting("QA Engineer"), {"skip_junior": True, "exclude_titles": ["qa"]})[0])
+check("whole words only: International is not an intern",
+      passes(posting("International Support Engineer"), {"skip_junior": True})[0])
+
+# ── providers ────────────────────────────────────────────────────────────────
+print("\nproviders\n" + "-" * 78)
+from jobsift.config import DEFAULT_MODELS  # noqa: E402
+from jobsift.llm import DeepSeekLLM, OpenAILLM, build_llm  # noqa: E402
+from jobsift.onboard import _model_edits  # noqa: E402
+
+
+class FakeCompletions:
+    """chat.completions, answering from a list and keeping every request."""
+
+    def __init__(self, replies):
+        self.replies, self.calls = list(replies), []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(
+            finish_reason="stop", message=SimpleNamespace(content=self.replies.pop(0)))])
+
+
+def faked(llm, replies):
+    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions(replies)))
+    return llm.client.chat.completions
+
+
+deepseek = DeepSeekLLM("sk-test")
+check("DeepSeek goes to its own address",
+      str(deepseek.client.base_url).startswith("https://api.deepseek.com"), deepseek.client.base_url)
+sent = faked(deepseek, ["", '{"jobs": []}'])
+got = deepseek.complete_json("deepseek-flash", "Extract the listings.", "an email")
+check("an empty reply is asked for once more", got == {"jobs": []} and len(sent.calls) == 2)
+check("the prompt says json, as DeepSeek's JSON mode needs",
+      "json" in sent.calls[0]["messages"][0]["content"].lower())
+check("DeepSeek gets max_tokens and temperature 0",
+      "max_tokens" in sent.calls[0] and sent.calls[0].get("temperature") == 0)
+openai_llm = OpenAILLM("sk-test")
+sent = faked(openai_llm, ['{"a": 1}', '{"a": 1}'])
+openai_llm.complete_json("gpt-5.6-luna", "Return json.", "x")
+openai_llm.complete_json("gpt-4o-mini", "Return json.", "x")
+reasoning, legacy = sent.calls
+check("a reasoning model gets room to reason and no temperature",
+      reasoning.get("max_completion_tokens", 0) >= 8000 and "temperature" not in reasoning
+      and reasoning.get("reasoning_effort") == "low", reasoning)
+check("a gpt-4 model keeps temperature 0",
+      legacy.get("temperature") == 0 and "reasoning_effort" not in legacy, legacy)
+os.environ["DEEPSEEK_API_KEY"] = "sk-from-env"
+check("build_llm finds the DeepSeek key in the environment",
+      build_llm("deepseek").client.api_key == "sk-from-env")
+os.environ.pop("DEEPSEEK_API_KEY")
+check("no default is an Opus model any more",
+      not any("opus" in model for models in DEFAULT_MODELS.values() for model in models.values()))
+named = {"models": {"extract": "claude-haiku-4-5-20251001", "score": "claude-sonnet-5",
+                    "draft": "claude-sonnet-5"}}
+check("switching a Claude config to DeepSeek replaces every model",
+      dict(_model_edits(named, "deepseek")) == {("models", s): "deepseek-flash"
+                                                for s in ("extract", "score", "draft")})
+check("and staying on Claude changes none", _model_edits(named, "anthropic") == [])
 
 
 # ── whole runs ───────────────────────────────────────────────────────────────
@@ -188,12 +282,18 @@ def wizard(folder, lines):
 
 
 FIRST_RUN = [
-    ("text", "Provider, anthropic or openai [anthropic]", "openai"),
+    ("text", "AI provider: deepseek, openai or claude [claude]", "openai"),
     ("secret", "OPENAI_API_KEY", "sk-bad"),
     ("text", "Try again, keep it anyway, or skip", ""),
     ("secret", "OPENAI_API_KEY", "sk-good-1234567890"),
     ("text", "Gmail address", "kim@example.com"),
     ("secret", "App password", "abcd efgh ijkl mnop"),
+    ("text", "Skip junior roles, internships and trainee posts? [Y/n]", ""),
+    ("text", "Skip senior roles? [y/N]", "y"),
+    ("text", "Skip virtual-assistant, admin and data-entry work? [Y/n]", "n"),
+    ("text", "Skip call-centre, BPO and big outsourcing firms", ""),
+    ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [40000]", "55k"),
+    ("text", "Alert when a job scores at least, out of 100 [60]", "70"),
     ("text", "Set up Telegram alerts? [Y/n]", ""),
     ("secret", "Bot token", "123456789:AAH-secret-token"),
     ("text", "Press Enter once it is sent", ""),
@@ -202,10 +302,16 @@ FIRST_RUN = [
     ("text", "Sheet link or id", f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"),
 ]
 SECOND_RUN = [
-    ("text", "Provider, anthropic or openai [openai]", ""),
+    ("text", "AI provider: deepseek, openai or claude [openai]", ""),
     ("secret", "OPENAI_API_KEY (typing is hidden) [set, ends ...7890", ""),
     ("text", "Gmail address [kim@example.com]", ""),
     ("secret", "App password (typing is hidden) [set, ends ...mnop", ""),
+    ("text", "Skip junior roles, internships and trainee posts? [Y/n]", ""),
+    ("text", "Skip senior roles? [Y/n]", ""),
+    ("text", "Skip virtual-assistant, admin and data-entry work? [y/N]", ""),
+    ("text", "Skip call-centre, BPO and big outsourcing firms", ""),
+    ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [55000]", ""),
+    ("text", "Alert when a job scores at least, out of 100 [70]", ""),
     ("text", "Telegram is already set up (chat 777). Set it up again? [y/N]", ""),
     ("text", "The Google Sheet is already set up. Set it up again? [y/N]", ""),
 ]
@@ -238,9 +344,14 @@ with tempfile.TemporaryDirectory() as tmp:
           env.get("GMAIL_APP_PASSWORD") == "abcdefghijklmnop")
     check("Telegram's chat was found, not typed",
           env.get("TELEGRAM_CHAT_ID") == "777" and ("send", "777") in calls)
-    check("the provider switch moved the models too",
-          cfg["llm_provider"] == "openai" and cfg["models"] == {
-              "extract": "gpt-4o-mini", "enrich": "gpt-4o-mini", "score": "gpt-4o"}, cfg["models"])
+    check("the provider is saved, and its default models left to apply",
+          cfg["llm_provider"] == "openai" and not cfg.get("models"), cfg.get("models"))
+    answers = {k: cfg["filters"].get(k) for k in (
+        "skip_junior", "skip_senior", "skip_assistant_roles", "skip_call_centres", "min_salary_php")}
+    check("the search answers are saved as switches",
+          answers == {"skip_junior": True, "skip_senior": True, "skip_assistant_roles": False,
+                      "skip_call_centres": True, "min_salary_php": 55000}
+          and cfg["score_threshold"] == 70, answers)
     check("the sheet is on, by id",
           cfg["google_sheet"] == {**cfg["google_sheet"], "enabled": True, "sheet_id": SHEET_ID,
                                   "service_account_file": "./service-account.json"})
@@ -263,7 +374,7 @@ with tempfile.TemporaryDirectory() as tmp:
 with tempfile.TemporaryDirectory() as tmp:
     print("\nstopped halfway\n" + "-" * 78)
     code, printed, script = wizard(Path(tmp), [
-        ("text", "Provider", ""),
+        ("text", "AI provider", ""),
         ("secret", "ANTHROPIC_API_KEY", "sk-ant-good-0000"),
         ("text", "Gmail address", KeyboardInterrupt),
     ])

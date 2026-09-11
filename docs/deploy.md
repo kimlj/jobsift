@@ -48,8 +48,8 @@ cp config.example.yaml config.yaml    # tune settings
 cp resume.example.txt resume.txt      # paste your profile
 ```
 
-- **`.env`** — your LLM key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, matching
-  `llm_provider` in config.yaml), `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
+- **`.env`** — your LLM key (`DEEPSEEK_API_KEY`, `OPENAI_API_KEY` or
+  `ANTHROPIC_API_KEY`, matching `llm_provider` in config.yaml), `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
   (Google Account → Security → 2-Step Verification → **App passwords**), and
   optionally `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`.
 - **`config.yaml`** — `llm_provider`, `known_senders`, `score_threshold`, and outputs.

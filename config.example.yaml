@@ -1,8 +1,10 @@
 # Copy to config.yaml and edit. This example file is safe to commit (no secrets).
 # These are the "editable params" — everything a fork of this project would tune.
 
-# ── LLM provider ── which API you have a key for: "anthropic" (Claude) or "openai" (GPT).
-# Put the matching key in .env (ANTHROPIC_API_KEY or OPENAI_API_KEY).
+# ── LLM provider ── which API you have a key for: "deepseek", "openai" (GPT) or
+# "anthropic" (Claude). Put the matching key in .env (DEEPSEEK_API_KEY,
+# OPENAI_API_KEY or ANTHROPIC_API_KEY). `--setup` asks, and checks the key works.
+# What each costs is under `models:` below.
 llm_provider: anthropic
 
 # How often to check the inbox (seconds)
@@ -60,65 +62,23 @@ telegram:
 # whatever it would have scored, and they run before enrich/score so a rejected
 # job costs nothing.
 filters:
-  # Whole-word match against the employer name. Generic terms like "outsourcing"
-  # and "staffing" are deliberately NOT here — plenty of those pay well, and
-  # min_salary_php already handles pay. This list is the named PH BPO shops.
-  exclude_companies:
-    # global CX/BPO majors operating in PH
-    [accenture, concentrix, webhelp, teleperformance, foundever, sitel, sykes,
-     telus international, telus digital, alorica, taskus, sutherland, iqor, vxi,
-     "[24]7", 247.ai, majorel, teletech, ttec, conduent, startek, ibex, transcom,
-     atento, wns, everise, qualfon, resultscx, results cx, hinduja, hgs,
-     # IT-services majors whose PH arms are delivery centres
-     genpact, cognizant, wipro, infosys, tata consultancy, tcs, optum,
-     # PH-based BPO / staff-leasing shops
-     beepo, kmc solutions, open access bpo, acquire bpo,
-     supportninja, boldr, shore360, satellite office,
-     # cloudstaff, emapta and pointwest were here and were removed 2026-09-01:
-     # they are staff-leasing / software-services firms rather than call-centre
-     # BPOs, and they pay competitively for developer roles. By the "fine as long
-     # as they pay well" rule they do not belong on this list — min_salary_php is
-     # what should judge them, and now does.
-     # catch-all: a company that puts BPO in its own name
-     bpo]
-  # Whole-word match against the job title — seniority you do not want, at BOTH
-  # ends. Applies to every source, which is the point: one list, same rule for
-  # email, jobstreet and the remote feeds alike.
-  #
-  # senior/sr added 2026-09-01. It drops a lot — most of what these boards label
-  # "Senior" is US-market senior, which is a different bar — and that is the
-  # intention: a role that cannot be defended in the interview is a wasted fetch,
-  # a wasted scoring call and a wasted afternoon. Adjacent titles NOT on this list
-  # yet, in case they should be: lead, staff, principal, head of, director,
-  # architect, manager.
-  # Role types that are never wanted, at any pay, from any board. These live HERE
-  # rather than in a per-source list because a rule that is true everywhere should
-  # be written once — onlinejobs.ph, jobstreet and the remote feeds all carry VA
-  # and admin work under slightly different titles.
-  exclude_titles:
-    # seniority, both ends
-    - jr
-    - junior
-    - intern
-    - internship
-    - trainee
-    - apprentice
-    - entry level
-    - fresh graduate
-    - senior
-    - sr
-    # assistant / admin work
-    - virtual assistant
-    - executive assistant
-    - admin assistant
-    - administrative assistant
-    - personal assistant
-    - data entry
-    - appointment setter
-    - cold caller
-    - telemarketer
-    # "va" is NOT here on purpose: as a whole word it would fire on a company
-    # called "VA Masters" and on any title carrying the US state abbreviation.
+  # ── Presets ── on/off, and what `--setup` asks. Each switch adds a word list that
+  # lives in jobsift/filters.py (PRESET_TERMS), matched as whole words against
+  # every source. The two lists below are for anything the presets do not cover.
+  skip_junior: true           # jr, junior, intern, internship, trainee, apprentice, entry level, fresh graduate
+  skip_senior: false          # senior, sr
+  skip_assistant_roles: true  # virtual/executive/admin assistant, data entry, appointment setter, cold caller, telemarketer
+  skip_call_centres: true     # ~45 call-centre, BPO and IT-outsourcing firms in PH, plus any company with "bpo" in its name
+  # More employers to skip, by name. Generic words like "outsourcing" and
+  # "staffing" are deliberately not in the preset: plenty of those pay well, and
+  # min_salary_php is what judges pay.
+  exclude_companies: []
+  # More titles to skip: role types never wanted at any pay, from any board. One
+  # list for every source, since a rule true everywhere should be written once.
+  # Titles next to the senior preset, in case they should go too: lead, staff,
+  # principal, head of, director, architect, manager. Avoid "va": as a whole
+  # word it fires on a company called "VA Masters" and on the US state.
+  exclude_titles: []
   # ── Geography ── four rules, applied in this order:
   #   1. the job is in the Philippines            -> keep, on-site/hybrid/remote alike
   #   2. elsewhere and remote                     -> keep only if a PH-based candidate
@@ -554,16 +514,19 @@ database_path: ./data/jobs.db
 # Kept out of git (see .gitignore) so your profile stays private in a fork.
 resume_path: ./resume.txt
 
-# Models per stage. Leave this out to use the provider's defaults, or set ids that
-# match your llm_provider. Mixing a cheap model for extract/enrich with a stronger
-# one for scoring keeps cost down.
-#   anthropic defaults: claude-opus-4-8 for all three
-#     (cheaper: claude-haiku-4-5 for extract/enrich, claude-sonnet-5 for score)
-#   openai defaults:    gpt-4o-mini for extract/enrich, gpt-4o for score
-models:
-  extract: claude-opus-4-8   # pull job listings out of an alert email
-  enrich: claude-opus-4-8    # read the job page for structured details
-  score: claude-opus-4-8     # match against your resume
+# Models per stage. Left out, as here, each provider's defaults apply: a cheap
+# model reads (extract, enrich) and a stronger one judges (score; drafting uses
+# score's model unless `draft` is named). Per 1M input / output tokens, 2026-09-11:
+#   deepseek:  deepseek-flash for all three            $0.15 / $0.60 off-peak
+#   openai:    gpt-5.6-luna to read                    $0.20 / $1.20
+#              gpt-5.6-terra to judge                  $2 / $12
+#   anthropic: claude-haiku-4-5 to read                $1 / $5
+#              claude-sonnet-5 to judge                $2 / $10
+# To override a stage, uncomment it and name a model from your llm_provider:
+# models:
+#   extract: claude-haiku-4-5   # pull job listings out of an alert email
+#   enrich: claude-haiku-4-5    # read the job page for structured details
+#   score: claude-sonnet-5      # match against your resume
 
 # ── Outputs (both optional) ──
 

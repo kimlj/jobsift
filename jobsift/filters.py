@@ -765,16 +765,76 @@ def salary_from_text(text: str, window: int = 120) -> str:
 
 
 
+# ── Presets ── the on/off switches under `filters:` in config.yaml, which
+# --setup asks about. Each adds its words to the matching list, so a config that
+# spells the words out itself (every config written before 2026-09-11) behaves
+# exactly as before, and exclude_titles / exclude_companies only need what the
+# presets do not cover. Matched as whole words, like the lists (see _matched).
+JUNIOR_TITLES = ["jr", "junior", "intern", "internship", "trainee", "apprentice",
+                 "entry level", "fresh graduate"]
+# Off in the example. For the author it is on: most of what these boards label
+# "Senior" is US-market senior, a different bar, and a role that cannot be
+# defended in the interview is a wasted fetch, scoring call and afternoon. For
+# plenty of PH developers it is exactly the job they want.
+SENIOR_TITLES = ["senior", "sr"]
+# onlinejobs.ph, jobstreet and the remote feeds all carry VA and admin work under
+# slightly different titles. "va" is not here: as a whole word it fires on a
+# company called "VA Masters" and on the US state abbreviation.
+ASSISTANT_TITLES = ["virtual assistant", "executive assistant", "admin assistant",
+                    "administrative assistant", "personal assistant", "data entry",
+                    "appointment setter", "cold caller", "telemarketer"]
+# Named call-centre and outsourcing employers in the Philippines. Generic words
+# like "outsourcing" and "staffing" are deliberately absent: plenty of those pay
+# well, and min_salary_php is what judges pay. Cloudstaff, Emapta and Pointwest
+# were here until 2026-09-01; they are staff-leasing and software-services firms
+# that pay competitively for developer roles, so the salary floor judges them.
+CALL_CENTRE_COMPANIES = [
+    # global CX/BPO majors operating in PH
+    "accenture", "concentrix", "webhelp", "teleperformance", "foundever", "sitel",
+    "sykes", "telus international", "telus digital", "alorica", "taskus",
+    "sutherland", "iqor", "vxi", "[24]7", "247.ai", "majorel", "teletech", "ttec",
+    "conduent", "startek", "ibex", "transcom", "atento", "wns", "everise", "qualfon",
+    "resultscx", "results cx", "hinduja", "hgs",
+    # IT-services majors whose PH arms are delivery centres
+    "genpact", "cognizant", "wipro", "infosys", "tata consultancy", "tcs", "optum",
+    # PH-based BPO / staff-leasing shops
+    "beepo", "kmc solutions", "open access bpo", "acquire bpo", "supportninja",
+    "boldr", "shore360", "satellite office",
+    # a company that puts BPO in its own name
+    "bpo",
+]
+PRESET_TERMS = {"skip_junior": JUNIOR_TITLES, "skip_senior": SENIOR_TITLES,
+                "skip_assistant_roles": ASSISTANT_TITLES,
+                "skip_call_centres": CALL_CENTRE_COMPANIES}
+
+
+def excluded_titles(settings: dict) -> list:
+    """exclude_titles, plus the words of every title preset switched on."""
+    terms = list(settings.get("exclude_titles") or [])
+    for key in ("skip_junior", "skip_senior", "skip_assistant_roles"):
+        if settings.get(key):
+            terms += PRESET_TERMS[key]
+    return terms
+
+
+def excluded_companies(settings: dict) -> list:
+    """exclude_companies, plus the call-centre list when that preset is on."""
+    terms = list(settings.get("exclude_companies") or [])
+    if settings.get("skip_call_centres"):
+        terms += CALL_CENTRE_COMPANIES
+    return terms
+
+
 def check(job: dict, settings: dict) -> tuple[bool, str]:
     """Return (keep, reason). reason is only meaningful when keep is False."""
     if not settings:
         return True, ""
 
-    blocked = _matched(job.get("company"), settings.get("exclude_companies"))
+    blocked = _matched(job.get("company"), excluded_companies(settings))
     if blocked:
         return False, f"company matches {blocked!r}"
 
-    blocked = _matched(job.get("title"), settings.get("exclude_titles"))
+    blocked = _matched(job.get("title"), excluded_titles(settings))
     if blocked:
         return False, f"title matches {blocked!r}"
 

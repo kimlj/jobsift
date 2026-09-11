@@ -9,10 +9,22 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-# Per-provider default models (used when config.yaml doesn't set them).
+# Per-provider default models, for any stage config.yaml does not name. A cheap
+# model reads (extract pulls listings out of an email, enrich reads a page) and a
+# stronger one judges (score, which drafting also uses unless `draft` is named).
+# Prices per 1M input / output tokens, from each provider's docs on 2026-09-11.
+# In the order --setup offers them.
 DEFAULT_MODELS = {
-    "anthropic": {"extract": "claude-opus-4-8", "enrich": "claude-opus-4-8", "score": "claude-opus-4-8"},
-    "openai": {"extract": "gpt-4o-mini", "enrich": "gpt-4o-mini", "score": "gpt-4o"},
+    # $0.15 / $0.60 off-peak, double at peak: cheap enough to judge with too.
+    "deepseek": {"extract": "deepseek-flash", "enrich": "deepseek-flash",
+                 "score": "deepseek-flash"},
+    # luna $0.20 / $1.20 to read, terra $2 / $12 to judge.
+    "openai": {"extract": "gpt-5.6-luna", "enrich": "gpt-5.6-luna", "score": "gpt-5.6-terra"},
+    # haiku $1 / $5 to read, sonnet $2 / $10 to judge. Was claude-opus-4-8
+    # ($5 / $25) for all three, which made every new install pay Opus rates to
+    # pull a title out of an email.
+    "anthropic": {"extract": "claude-haiku-4-5", "enrich": "claude-haiku-4-5",
+                  "score": "claude-sonnet-5"},
 }
 
 
@@ -70,6 +82,8 @@ class Config:
     # Set on a machine that only scrapes onlinejobs.ph for a core elsewhere.
     # See jobsift/worker.py.
     worker: dict = field(default_factory=dict)
+    # Last, with a default, so nothing that builds a Config positionally breaks.
+    deepseek_api_key: str = ""
 
     @property
     def telegram_active(self) -> bool:
@@ -108,6 +122,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         llm_provider=provider,
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         gmail_address=os.getenv("GMAIL_ADDRESS", ""),
         gmail_app_password=os.getenv("GMAIL_APP_PASSWORD", ""),
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
@@ -139,7 +154,8 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
 
     # Validate the API key for the chosen provider + Gmail creds.
     missing = []
-    provider_key = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}[provider]
+    provider_key = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
+                    "deepseek": "DEEPSEEK_API_KEY"}[provider]
     if not os.getenv(provider_key):
         missing.append(f"{provider_key} (required for llm_provider: {provider})")
     if not config.gmail_address:

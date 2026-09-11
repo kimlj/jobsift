@@ -57,7 +57,7 @@ false of tier 1, which was worth writing down after measuring both.
 
 ## Everything is a param
 
-- **`.env`** — secrets (your LLM API key — OpenAI or Anthropic — Gmail app password, Telegram token).
+- **`.env`** — secrets (your LLM API key — DeepSeek, OpenAI or Anthropic — Gmail app password, Telegram token).
 - **`config.yaml`** — the tunables: which senders count as job alerts, score threshold,
   which models, and whether the Google Sheet / Telegram outputs are on.
 
@@ -67,8 +67,10 @@ flood), Google Sheet = full browsable archive of every scored job.
 ## Quick start
 
 Needs **Python 3.10+** (the code uses `X | None` type syntax) and an API key
-for one LLM provider — [Anthropic](https://console.anthropic.com) or
-[OpenAI](https://platform.openai.com). **The key costs money to use:** every
+for one LLM provider — [DeepSeek](https://platform.deepseek.com),
+[OpenAI](https://platform.openai.com) or [Anthropic](https://console.anthropic.com)
+(Claude). Each defaults to a cheap model for reading and a stronger one for
+judging, and `config.example.yaml` lists what they cost. **The key costs money to use:** every
 job is read by the model once, and anything past the filters is read again to
 score it. One pass over a day of alerts plus the scrape sources ran ~150 calls.
 Drafting an application is a further call per job, on the more expensive model,
@@ -132,7 +134,7 @@ Why something is built the way it is → [docs/decisions.md](docs/decisions.md).
 jobsift/            the app
   __main__.py           entry point (python -m jobsift)
   config.py             loads .env + config.yaml
-  llm.py                pluggable provider layer (openai | anthropic)
+  llm.py                pluggable provider layer (deepseek | openai | anthropic)
   gmail.py              IMAP inbox reader (App Password)
   classify.py           known_senders / keyword match
   extract.py            LLM: pull jobs out of an alert email

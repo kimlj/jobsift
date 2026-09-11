@@ -63,7 +63,7 @@ server of its own (the droplet is shared), and paying for or passing on AI costs
 
 In order:
 
-- [ ] **Choice of AI provider in `--setup`: DeepSeek, OpenAI, Claude**, in that
+- [x] **Done 2026-09-11. Choice of AI provider in `--setup`: DeepSeek, OpenAI, Claude**, in that
       order. DeepSeek goes through the OpenAI SDK with
       `base_url="https://api.deepseek.com"` and a `DEEPSEEK_API_KEY`. From its docs
       on 2026-09-11: `deepseek-flash` is the chat model (1M context, JSON output;
@@ -73,15 +73,19 @@ In order:
       prompt, and the docs warn it "may occasionally return empty content", so treat
       an empty reply as a retry. Setup checks the key with a free models-list call,
       the same way it checks Claude and OpenAI keys.
-- [ ] **Cheaper default models: a cheap one to read, a better one to judge.** The
-      example config uses `claude-opus-4-8` ($5 / $25 per 1M) for all three
-      stages. Claude defaults become `claude-haiku-4-5` ($1 / $5) for
-      extract/enrich and `claude-sonnet-5` ($2 / $10) for score. OpenAI's current
-      ids need checking first: the docs moved to
-      developers.openai.com/api/docs/models, and newer reasoning models may reject
-      the `temperature=0` and `max_tokens` that `llm.py` sends today. Existing
+- [x] **Done 2026-09-11. Cheaper default models: a cheap one to read, a better one
+      to judge.** The example config used `claude-opus-4-8` ($5 / $25 per 1M) for
+      all three stages. Claude defaults are now `claude-haiku-4-5` ($1 / $5) for
+      extract/enrich and `claude-sonnet-5` ($2 / $10) for score; OpenAI
+      `gpt-5.6-luna` ($0.20 / $1.20) and `gpt-5.6-terra` ($2 / $12), from
+      developers.openai.com/api/docs/models; DeepSeek `deepseek-flash` throughout.
+      OpenAI's current models all reason, so `llm.py` sends them
+      `max_completion_tokens` (at least 8,000, since the reasoning spends from it)
+      and `reasoning_effort: low` instead of `max_tokens` and a temperature.
+      **Not yet tried against the live OpenAI or DeepSeek API** (no key on this
+      machine); `dryrun_setup.py` checks the requests with a fake client. Existing
       configs keep the models they name.
-- [ ] **Presets in `--setup`, as a "Your search" step:** skip junior roles, skip
+- [x] **Done 2026-09-11. Presets in `--setup`, as a "Your search" step:** skip junior roles, skip
       senior roles, skip assistant/admin work, skip call-centre companies, the
       minimum monthly pay (PHP), and the alert threshold. The title and company
       lists become on/off switches whose word lists live in `filters.py`, unioned

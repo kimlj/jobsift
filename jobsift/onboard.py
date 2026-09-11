@@ -41,9 +41,27 @@ EXAMPLES = Path(__file__).resolve().parent.parent
 # you@gmail.com back as though somebody had typed it.
 PLACEHOLDERS = {"", "you@gmail.com", "xxxx xxxx xxxx xxxx", "<YOUR_GOOGLE_SHEET_ID>"}
 
-KEY_NAMES = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
-KEY_PAGES = {"anthropic": "https://console.anthropic.com/settings/keys",
-             "openai": "https://platform.openai.com/api-keys"}
+# In the order setup offers them.
+KEY_NAMES = {"deepseek": "DEEPSEEK_API_KEY", "openai": "OPENAI_API_KEY",
+             "anthropic": "ANTHROPIC_API_KEY"}
+KEY_PAGES = {"deepseek": "https://platform.deepseek.com/api_keys",
+             "openai": "https://platform.openai.com/api-keys",
+             "anthropic": "https://console.anthropic.com/settings/keys"}
+# What a person sees and types. config.yaml keeps saying "anthropic", as it always has.
+SHOWN = {"deepseek": "deepseek", "openai": "openai", "anthropic": "claude"}
+TYPED = {"deepseek": "deepseek", "openai": "openai", "gpt": "openai",
+         "claude": "anthropic", "anthropic": "anthropic"}
+
+# The presets --setup asks about: (switch in config.yaml's filters block, question,
+# answer for a config that has neither the switch nor any of its words). The words
+# behind each switch are filters.PRESET_TERMS.
+PRESETS = [
+    ("skip_junior", "Skip junior roles, internships and trainee posts?", True),
+    ("skip_senior", "Skip senior roles?", False),
+    ("skip_assistant_roles", "Skip virtual-assistant, admin and data-entry work?", True),
+    ("skip_call_centres", "Skip call-centre, BPO and big outsourcing firms "
+                          "(Concentrix, Accenture...)?", True),
+]
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
@@ -101,13 +119,17 @@ def _find(lines: list[str], start: int, end: int, indent: str, key: str):
     return None
 
 
-def set_yaml_value(text: str, path: tuple, value) -> str:
+def set_yaml_value(text: str, path: tuple, value, insert: bool = False) -> str:
     """Replace one scalar in config.yaml's text, keeping every comment.
 
     Only the two shapes this file uses: a top-level key, and a key one level
     inside a top-level block. A path it cannot find is an error rather than an
     append, because a config.yaml without google_sheet.sheet_id where the example
     puts it has been rearranged by someone who should decide where it goes.
+
+    `insert` is the exception, for switches newer than the config being edited:
+    a config written before the presets has no filters.skip_senior, and the key
+    is added at the top of its block rather than refused.
     """
     eol = _eol(text)
     lines = text.split(eol)
@@ -129,11 +151,23 @@ def set_yaml_value(text: str, path: tuple, value) -> str:
         raise ValueError(f"unsupported path {path}")
 
     found = _find(lines, start, end, indent, path[-1])
-    if found is None:
+    if found is not None:
+        index, match = found
+        lines[index] = (f"{match['indent']}{match['key']}:{match['gap'] or ' '}"
+                        f"{_scalar(value)}{match['tail'] or ''}")
+    elif not insert:
         raise SetupError(f"config.yaml has no `{'.'.join(path)}` to set")
-    index, match = found
-    lines[index] = (f"{match['indent']}{match['key']}:{match['gap'] or ' '}"
-                    f"{_scalar(value)}{match['tail'] or ''}")
+    elif len(path) == 1:
+        # After the last line with anything on it, so the final newline stays last.
+        at = len(lines)
+        while at and not lines[at - 1].strip():
+            at -= 1
+        lines.insert(at, f"{path[0]}: {_scalar(value)}")
+    else:
+        if block[1]["value"].strip():
+            raise SetupError(f"config.yaml writes `{path[0]}` on one line; "
+                             f"add `{path[1]}` to it by hand")
+        lines.insert(block[0] + 1, f"{indent}{path[1]}: {_scalar(value)}")
     new = eol.join(lines)
 
     # Read the edit back the way load_config will, and refuse anything that does
@@ -206,17 +240,26 @@ def _mask(secret: str) -> str:
     return f"set, ends ...{secret[-4:]}" if len(secret) > 8 else "set"
 
 
-def _model_edits(cfg: dict, provider: str) -> list:
-    """Models in config.yaml that belong to the other provider.
+def _provider_of(model: str) -> str:
+    if model.startswith("claude"):
+        return "anthropic"
+    if model.startswith("deepseek"):
+        return "deepseek"
+    return "openai"
 
-    The example names a Claude model for every stage, and load_config only fills
-    stages that are absent, so switching to OpenAI without this would send Claude
-    model ids to OpenAI on the first call.
+
+def _model_edits(cfg: dict, provider: str) -> list:
+    """Models in config.yaml that belong to another provider.
+
+    load_config only fills the stages a config leaves out, so a config naming
+    Claude models that switches to DeepSeek would otherwise send Claude model
+    ids to DeepSeek on the first call. Each is replaced with the new provider's
+    default for that stage.
     """
     wanted = DEFAULT_MODELS[provider]
     return [(("models", stage), wanted.get(stage, wanted["score"]))
             for stage, model in (cfg.get("models") or {}).items()
-            if isinstance(model, str) and model.startswith("claude") != (provider == "anthropic")]
+            if isinstance(model, str) and _provider_of(model) != provider]
 
 
 # ── The checks ───────────────────────────────────────────────────────────────
@@ -238,6 +281,9 @@ def check_llm(provider: str, key: str) -> str:
     if provider == "anthropic":
         resp = _http("GET", "https://api.anthropic.com/v1/models",
                      headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+    elif provider == "deepseek":
+        resp = _http("GET", "https://api.deepseek.com/models",
+                     headers={"Authorization": f"Bearer {key}"})
     else:
         resp = _http("GET", "https://api.openai.com/v1/models",
                      headers={"Authorization": f"Bearer {key}"})
@@ -411,7 +457,7 @@ class _Wizard:
     # small pieces --------------------------------------------------------
 
     def _title(self, number, name: str) -> None:
-        self.out(f"\n{number} of 5 - {name}\n" if number else f"\n{name}\n")
+        self.out(f"\n{number} of 6 - {name}\n" if number else f"\n{name}\n")
 
     def _config_now(self) -> dict:
         if not self.config_path.is_file():
@@ -428,10 +474,10 @@ class _Wizard:
         text = _read(self.env_path) if self.env_path.is_file() else ""
         _write(self.env_path, set_env_values(text, updates), private=True)
 
-    def _save_config(self, edits: list) -> None:
+    def _save_config(self, edits: list, insert: bool = False) -> None:
         text = _read(self.config_path)
         for path, value in edits:
-            text = set_yaml_value(text, path, value)
+            text = set_yaml_value(text, path, value, insert=insert)
         _write(self.config_path, text)
 
     def _text(self, prompt: str, current: str = "") -> str:
@@ -467,13 +513,14 @@ class _Wizard:
     def run(self) -> int:
         self.out("jobsift setup\n\n"
                  "Connects the accounts jobsift uses and checks each one works: an AI key,\n"
-                 "your Gmail, and optionally Telegram and a Google Sheet. Press Enter to keep\n"
-                 "what is already set. Secrets are saved only in .env, and the checks read\n"
-                 "no email and call no AI model.")
+                 "your Gmail, and optionally Telegram and a Google Sheet. It also asks what\n"
+                 "to filter out. Press Enter to keep what is already set. Secrets are saved\n"
+                 "only in .env, and the checks read no email and call no AI model.")
         if not self._files():
             return 1
         self._llm()
         self._gmail()
+        self._search()
         self._telegram()
         self._sheet()
         return self._finish()
@@ -505,14 +552,18 @@ class _Wizard:
     def _llm(self) -> None:
         self._title(2, "AI provider")
         self.out("  jobsift uses an AI model to read and score each job, which costs money:\n"
-                 "  roughly 150 calls for a day of alerts. It needs an API key from one provider.")
+                 "  roughly 150 calls for a day of alerts. It needs an API key from one\n"
+                 "  provider, which bills you directly. Prices differ a lot between them;\n"
+                 "  config.example.yaml lists what each default model costs.")
         cfg, env = self._config_now(), self._env_now()
         provider = str(cfg.get("llm_provider") or "anthropic").lower()
         while True:
-            provider = self._text("Provider, anthropic or openai", provider).lower()
-            if provider in KEY_NAMES:
+            typed = self._text("AI provider: deepseek, openai or claude",
+                               SHOWN.get(provider, provider)).lower()
+            if typed in TYPED:
+                provider = TYPED[typed]
                 break
-            self.out("  type anthropic or openai")
+            self.out("  type deepseek, openai or claude")
         name = KEY_NAMES[provider]
         self.out(f"  Make a key at {KEY_PAGES[provider]}")
         while True:
@@ -563,8 +614,50 @@ class _Wizard:
             self.out("  saved.")
             return
 
+    def _number(self, prompt: str, current: int, low: int = 0, high: int | None = None) -> int:
+        """A whole number, as typed by a person: "50,000" and "50k" both mean 50000."""
+        while True:
+            raw = self._text(prompt, str(current)).lower().replace(",", "").replace(" ", "")
+            if raw.endswith("k") and raw[:-1].isdigit():
+                raw = str(int(raw[:-1]) * 1000)
+            if raw.isdigit() and int(raw) >= low and (high is None or int(raw) <= high):
+                return int(raw)
+            self.out("  a whole number" + (f" from {low} to {high}" if high is not None else ""))
+
+    def _search(self) -> None:
+        from .filters import PRESET_TERMS
+
+        self._title(4, "Your search")
+        self.out("  What jobsift throws away before it spends anything on a job. Each answer\n"
+                 "  is an on/off switch in config.yaml, so it can be changed there any time.")
+        cfg = self._config_now()
+        filters_cfg = cfg.get("filters") or {}
+        own_titles = [str(t).lower() for t in filters_cfg.get("exclude_titles") or []]
+        own_companies = [str(c).lower() for c in filters_cfg.get("exclude_companies") or []]
+        edits = []
+        for key, question, fallback in PRESETS:
+            # A config written before the switches spells the words out itself.
+            # Asked with the answer that matches what it already does.
+            mine = own_companies if key == "skip_call_centres" else own_titles
+            listed = [term for term in PRESET_TERMS[key] if term in mine]
+            current = filters_cfg.get(key)
+            answer = self._yes(question, bool(current) if current is not None
+                               else (bool(listed) or fallback))
+            edits.append((("filters", key), answer))
+            if not answer and listed:
+                shown = ", ".join(listed[:4]) + ("..." if len(listed) > 4 else "")
+                self.out(f"    your own list in config.yaml still names {shown}; "
+                         "remove those to let them through")
+        floor = self._number("Lowest monthly pay you would take, in pesos (0 for no floor)",
+                             int(filters_cfg.get("min_salary_php") or 0))
+        threshold = self._number("Alert when a job scores at least, out of 100",
+                                 int(cfg.get("score_threshold") or 60), 0, 100)
+        edits += [(("filters", "min_salary_php"), floor), (("score_threshold",), threshold)]
+        self._save_config(edits, insert=True)
+        self.out("  saved.")
+
     def _telegram(self) -> None:
-        self._title(4, "Telegram alerts (optional)")
+        self._title(5, "Telegram alerts (optional)")
         self.out("  The best matches arrive as a message on your phone. Free, about two minutes.")
         env = self._env_now()
         token_now = env.get("TELEGRAM_BOT_TOKEN") or ""
@@ -634,7 +727,7 @@ class _Wizard:
             self.out("  pick a number from the list")
 
     def _sheet(self) -> None:
-        self._title(5, "Google Sheet (optional)")
+        self._title(6, "Google Sheet (optional)")
         sheet_cfg = self._config_now().get("google_sheet") or {}
         current_id = str(sheet_cfg.get("sheet_id") or "")
         current_id = "" if current_id in PLACEHOLDERS else current_id

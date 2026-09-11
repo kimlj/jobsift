@@ -1,4 +1,4 @@
-"""Pluggable LLM layer — pick your provider in config (openai | anthropic).
+"""Pluggable LLM layer — pick your provider in config (deepseek | openai | anthropic).
 
 Every provider exposes the same interface: complete_json(model, system, user) -> dict.
 The SDK for a provider is imported lazily, so you only need to install the one you use.
@@ -7,6 +7,7 @@ The SDK for a provider is imported lazily, so you only need to install the one y
 from __future__ import annotations
 
 import logging
+import os
 
 from .utils import parse_json_object
 
@@ -104,55 +105,111 @@ class AnthropicLLM:
 class OpenAILLM:
     """GPT via the OpenAI Chat Completions API (JSON mode)."""
 
-    def __init__(self, api_key: str):
+    name = "OpenAI"
+
+    def __init__(self, api_key: str, base_url: str | None = None):
         from openai import OpenAI
 
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+
+    def _limits(self, model: str, max_tokens: int) -> dict:
+        """The length and sampling settings this model accepts.
+
+        OpenAI's current models all reason before they answer (gpt-5.6-luna,
+        -terra, -sol and gpt-6-astra, per its model list on 2026-09-11). A
+        reasoning model takes max_completion_tokens rather than max_tokens, spends
+        its reasoning from that same budget, and is not given a temperature. The
+        gpt-4 generation takes a temperature and needs no room for reasoning.
+        """
+        if model.startswith(("gpt-4", "gpt-3.5")):
+            return {"max_completion_tokens": max_tokens, "temperature": 0}
+        # Room for the reasoning ahead of a JSON answer that fits in max_tokens,
+        # and "low": reading a posting and scoring it are not problems to deliberate.
+        return {"max_completion_tokens": max(max_tokens, 8000), "reasoning_effort": "low"}
 
     def complete_json(
         self, model: str, system: str, user: str, max_tokens: int = 2000,
         cache_system: bool = False,
     ) -> dict:
         # `cache_system` is accepted and ignored: OpenAI caches long prompt
-        # prefixes automatically with no parameter, so the two providers stay
+        # prefixes automatically with no parameter, so the providers stay
         # interchangeable from the caller's side.
         try:
             resp = self.client.chat.completions.create(
                 model=model,
-                temperature=0,
-                max_tokens=max_tokens,
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                **self._limits(model, max_tokens),
             )
         except Exception:
-            logger.exception("OpenAI call failed (model=%s)", model)
+            logger.exception("%s call failed (model=%s)", self.name, model)
             return {}
         if resp.choices[0].finish_reason == "length":
             logger.warning(
-                "Response hit max_tokens (%d) and was cut off — the JSON is incomplete "
+                "Response hit its token limit and was cut off — the JSON is incomplete "
                 "and will not parse. Raise max_tokens or shrink the input.",
-                max_tokens,
             )
         return _parsed_or_warn(resp.choices[0].message.content or "", model)
 
 
+class DeepSeekLLM(OpenAILLM):
+    """DeepSeek, through its OpenAI-compatible API.
+
+    Two differences from OpenAI, both from DeepSeek's JSON-mode docs as of
+    2026-09-11: the prompt must contain the word "json", and the API "may
+    occasionally return empty content". An empty reply is therefore asked for
+    once more instead of being read as "found nothing", which for extract would
+    silently drop every job in an email.
+    """
+
+    name = "DeepSeek"
+    BASE_URL = "https://api.deepseek.com"
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key, base_url=self.BASE_URL)
+
+    def _limits(self, model: str, max_tokens: int) -> dict:
+        return {"max_tokens": max_tokens, "temperature": 0}
+
+    def complete_json(
+        self, model: str, system: str, user: str, max_tokens: int = 2000,
+        cache_system: bool = False,
+    ) -> dict:
+        if "json" not in (system + user).lower():
+            system += "\n\nReply with one json object."
+        data = super().complete_json(model, system, user, max_tokens, cache_system)
+        if not data:
+            logger.info("DeepSeek returned nothing usable (model=%s); asking once more", model)
+            data = super().complete_json(model, system, user, max_tokens, cache_system)
+        return data
+
+
+# In the order --setup offers them. The value is the .env variable holding the key.
 _PROVIDERS = {
-    "anthropic": (AnthropicLLM, "anthropic_api_key"),
-    "openai": (OpenAILLM, "openai_api_key"),
+    "deepseek": (DeepSeekLLM, "DEEPSEEK_API_KEY"),
+    "openai": (OpenAILLM, "OPENAI_API_KEY"),
+    "anthropic": (AnthropicLLM, "ANTHROPIC_API_KEY"),
 }
 
 
-def build_llm(provider: str, *, openai_api_key: str = "", anthropic_api_key: str = ""):
-    """Construct the LLM client for the configured provider."""
+def build_llm(provider: str, *, openai_api_key: str = "", anthropic_api_key: str = "",
+              deepseek_api_key: str = ""):
+    """Construct the LLM client for the configured provider.
+
+    A key not passed in is read from the environment, where load_config has
+    already put .env. That is how DEEPSEEK_API_KEY reaches the call sites
+    written before DeepSeek was supported, without changing each of them.
+    """
     provider = (provider or "anthropic").lower()
-    keys = {"anthropic_api_key": anthropic_api_key, "openai_api_key": openai_api_key}
     entry = _PROVIDERS.get(provider)
     if not entry:
         raise SystemExit(
             f"Unknown llm provider: {provider!r}. Supported: {', '.join(_PROVIDERS)}"
         )
-    cls, key_name = entry
-    return cls(keys[key_name])
+    cls, env_name = entry
+    passed = {"deepseek": deepseek_api_key, "openai": openai_api_key,
+              "anthropic": anthropic_api_key}[provider]
+    return cls(passed or os.getenv(env_name, ""))
