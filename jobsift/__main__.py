@@ -875,6 +875,14 @@ def main() -> None:
                 if done["action"] != "none":
                     log.info("Evidence index: %s (%s)", done["action"], "; ".join(done["why"]))
 
+            # Re-read every pass rather than once at start-up. On a core fed by a
+            # residential worker, resume.txt is replaced whenever it is edited at
+            # home, and a copy held from start-up would go on scoring every job
+            # against the old resume until someone restarted this process. The
+            # worker replaces it atomically, so a pass never reads half a file.
+            with open(config.resume_path, encoding="utf-8") as fh:
+                resume = fh.read()
+
             # Both of these read cells the user edited, and both run before the
             # pass rather than after it. A pass spends minutes in the scrape
             # sources - onlinejobs.ph is paced to its robots.txt Crawl-delay,
