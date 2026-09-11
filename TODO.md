@@ -44,6 +44,26 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       `dryrun_render.py`. On the first real onlinejobs.ph application, watch the push to
       `~/port`, the Vercel deploy and the wait for the hash to match, and check the row
       it adds to `docs/resume-links.md` before sending the link.
+- [ ] **skill-compiler follow-ups** (the skill lives in `~/.claude/skills/skill-compiler/`;
+      its first compilation was the tailoring skill onto `--render` and `--publish`).
+      1. **Second review round.** `OneDrive\Desktop\skill-compiler-review-v0.2.md` is ready
+         to hand to ChatGPT and OpenCode. Fold in what holds up after checking it against
+         the code.
+      2. **Prove it on another domain, in its own order.** The first compilation skipped
+         the test set. Candidates:
+         - `employer-vetting` (recommended): web research and a verdict, probably with
+           fixed steps to move into code.
+         - `interview-prep`: mostly judgment. It should conclude there is little to
+           compile.
+      3. **Redo the tailoring comparison in the v0.2 order** (see the item above): 2 or 3
+         inputs with written `expectations`, 2 runs per version, the blind comparator, and
+         cost per successful output.
+      4. **A sourced Opus 5 rate** for `trace.py`'s price table. Until then, Claude runs
+         on Opus 5 are reported in tokens unless `--price` is given.
+      5. **Deferred until the core loop is proved,** as both reviews advised: an
+         artifact-and-operation graph of the trace, model-based sorting of the calls
+         `trace.py` leaves as `other`, compiling to a pipeline runtime, and mining test
+         inputs from transcripts.
 
 - [ ] **Set up alerts on Kalibrr and Bossjob** (owner, about 10 minutes), pointed at
       GMAIL_ADDRESS. Both are in `known_senders` and sent nothing in the 30 days
