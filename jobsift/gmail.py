@@ -15,6 +15,28 @@ logger = logging.getLogger(__name__)
 
 IMAP_HOST = "imap.gmail.com"
 
+# Messages per header FETCH. One round trip per message is what makes a month of
+# inbox slow; a few hundred per command keeps each request well under any limit.
+HEADER_BATCH = 200
+
+
+def parse_header_rows(rows) -> list[dict]:
+    """imaplib's answer to a batched header FETCH, as [{"from", "subject"}].
+
+    The answer interleaves (envelope, header bytes) tuples with bare b")"
+    closers, and only the tuples carry a message.
+    """
+    out: list[dict] = []
+    for item in rows or []:
+        if not isinstance(item, tuple) or len(item) < 2:
+            continue
+        msg = email.message_from_bytes(item[1])
+        sender = parseaddr(str(msg.get("From") or ""))[1].lower()
+        if sender:
+            out.append({"from": sender,
+                        "subject": GmailReader._decode(msg.get("Subject") or "")})
+    return out
+
 
 class GmailReader:
     def __init__(self, address: str, app_password: str):
@@ -55,6 +77,40 @@ class GmailReader:
             except Exception:
                 pass
         return messages
+
+    def fetch_headers(self, lookback_days: int = 30) -> list[dict]:
+        """Sender and subject of every inbox message in the window, nothing else.
+
+        For --suggest-senders, which only needs to know who writes and about
+        what. A header is a few hundred bytes where RFC822 is the whole message,
+        and BODY.PEEK on a read-only mailbox leaves every message's unread state
+        as it was: this is a look through somebody's inbox, and it should not
+        show. INBOX rather than All Mail because it is the mailbox the pipeline
+        reads - a sender whose mail is filtered past the inbox would be a
+        suggestion that could never take effect.
+        """
+        headers: list[dict] = []
+        conn = imaplib.IMAP4_SSL(IMAP_HOST)
+        try:
+            conn.login(self.address, self.app_password)
+            conn.select("INBOX", readonly=True)
+            since = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%d-%b-%Y")
+            typ, data = conn.uid("search", None, f"(SINCE {since})")
+            if typ != "OK" or not data or not data[0]:
+                return headers
+            uids = data[0].split()
+            for start in range(0, len(uids), HEADER_BATCH):
+                batch = b",".join(uids[start:start + HEADER_BATCH]).decode()
+                typ, rows = conn.uid(
+                    "fetch", batch, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+                if typ == "OK":
+                    headers.extend(parse_header_rows(rows))
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+        return headers
 
     def fetch_confirmations(self, senders, lookback_days: int = 90,
                             phrases=()) -> list[dict]:

@@ -322,6 +322,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="jobsift", description="Job-alert email watcher")
     parser.add_argument("--once", action="store_true", help="Run a single pass and exit")
     parser.add_argument(
+        "--setup",
+        action="store_true",
+        help="Connect the accounts jobsift needs - an AI key, Gmail, and optionally "
+             "Telegram and a Google Sheet - and check each one works. Writes .env and "
+             "config.yaml, keeping every comment. Safe to run again.",
+    )
+    parser.add_argument(
+        "--suggest-senders",
+        nargs="?",
+        const=30,
+        type=int,
+        metavar="DAYS",
+        help="Read the sender and subject of recent inbox mail (nothing opened or marked "
+             "read) and list senders that look like job alerts but are not in "
+             "known_senders, with the lines to paste. Changes nothing. Defaults to 30 days.",
+    )
+    parser.add_argument(
         "--draft",
         metavar="MATCH",
         help="Draft an application for a stored job (match on company or title, or a job id). "
@@ -486,6 +503,15 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     log = logging.getLogger("jobsift")  # the module-level one, by name
+    # httpx logs every request's full URL at INFO, and a Telegram URL carries the
+    # bot token (api.telegram.org/bot<token>/sendMessage). Warnings still show.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    if args.setup:
+        # Before load_config, which refuses to start without the very files this makes.
+        from .onboard import run as run_setup
+
+        raise SystemExit(run_setup(args.config, args.env, args.profile))
 
     config = load_config(args.config, args.env)
 
@@ -512,6 +538,15 @@ def main() -> None:
                 f"{' '.join(needs_db)} needs the database, and this machine is a residential "
                 f"worker (worker.enabled in config.yaml). The database lives on the core, "
                 f"{config.worker.get('ssh') or 'worker.ssh'}: run it there.")
+
+    if args.suggest_senders is not None:
+        from .senders import render, suggest
+
+        headers = GmailReader(config.gmail_address, config.gmail_app_password).fetch_headers(
+            args.suggest_senders)
+        print(render(suggest(headers, config.known_senders, config.job_subject_keywords,
+                             own_address=config.gmail_address), args.suggest_senders))
+        return
 
     # The USD rate multiplies every dollar-quoted listing, so it decides what
     # clears min_salary_php and how the sheet sorts. Fetched once here, at the

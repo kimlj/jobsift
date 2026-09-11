@@ -58,6 +58,24 @@ matching job keywords in the subject — that works, but it is less precise, and
 is also why `safefetch` exists: keyword-only matching means *anyone* who can put
 mail in the inbox can hand this program a URL to fetch.
 
+You do not have to work these out by hand. Once a few boards are subscribed and a
+week of alerts has arrived, run:
+
+```bash
+python -m jobsift --suggest-senders        # the last 30 days; pass a number for more
+```
+
+It reads only the sender and subject of inbox mail (nothing is opened or marked
+read) and lists senders that keep writing about jobs but are not in
+`known_senders`, each with the line to paste. Where a domain also sends other mail,
+as LinkedIn does, it suggests the one address rather than the whole domain, and it
+never suggests Gmail or another address anyone can have. It also names two things
+worth knowing: known senders that sent nothing, which usually means an alert that
+was never set up or goes to a different address, and senders that mostly send other
+mail but get in on a subject keyword, each of which costs an AI call that finds
+nothing. It never edits the config. A suggestion is a guess from subject lines, and
+adding the wrong sender pays for a call on every email it sends.
+
 (The wording here used to describe the *Classify email* node of the original n8n
 workflow this replaced. The running program is the Python package.)
 

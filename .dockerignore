@@ -1,0 +1,12 @@
+# An allowlist, not a blocklist. This folder holds .env, service-account.json,
+# resume.txt and the database, and a blocklist only protects the files somebody
+# remembered to name. Everything is left out except what the image is built from.
+*
+!jobsift/
+!requirements.txt
+!config.example.yaml
+!.env.example
+!resume.example.txt
+!profile.example.yaml
+!career.example.yaml
+**/__pycache__

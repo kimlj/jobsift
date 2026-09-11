@@ -1,0 +1,40 @@
+# docker compose run --rm jobsift --setup    connect the accounts, once
+# docker compose up -d                        run it; restarts on failure and at boot
+# docker compose logs -f                      watch it
+#
+# Everything of yours stays in this folder, mounted at /work: config.yaml, .env,
+# resume.txt, profile.yaml, service-account.json and data/. The image holds only
+# the code, so `git pull && docker compose up -d --build` upgrades without
+# touching any of it.
+#
+# One copy only. This and a Task Scheduler job or systemd unit on the same
+# database score every job twice and alert it twice (docs/deploy.md).
+services:
+  jobsift:
+    build: .
+    image: jobsift:local
+    restart: unless-stopped
+    # On Linux the files in this folder belong to your user, and a container
+    # running as anyone else cannot write data/. 1000 is the first user on most
+    # distributions; if `id -u` says otherwise, start it as
+    #   JOBSIFT_UID=$(id -u) JOBSIFT_GID=$(id -g) docker compose up -d
+    # Docker Desktop on Windows and macOS does not care.
+    user: "${JOBSIFT_UID:-1000}:${JOBSIFT_GID:-1000}"
+    volumes:
+      - .:/work
+    # It reads a mailbox, holds API keys and follows links that strangers put in
+    # emails, so it gets nothing it does not need.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Steady peak is about 85 MB. The cap means a runaway is what gets killed,
+    # not whatever else shares the machine.
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

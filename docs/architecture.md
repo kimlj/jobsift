@@ -254,6 +254,8 @@ up for months.
 | `jobsift/evidence.py`, `career.py` | Evidence index |
 | `jobsift/sheets.py`, `notify.py`, `export.py` | Outputs |
 | `jobsift/store.py` | SQLite |
+| `jobsift/onboard.py`, `jobsift/senders.py` | `--setup` and `--suggest-senders`: getting a new install connected |
+| `Dockerfile`, `compose.yaml` | The container: code only in the image, everything personal in the mounted folder |
 | `docs/deploy.md` | Hosting, the datacenter measurements, Task Scheduler setup |
 | `docs/decisions.md` | Why things are built the way they are |
 | `docs/evidence-index.md` | Evidence index setup |

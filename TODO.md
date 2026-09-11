@@ -52,12 +52,21 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       the `hiring` subject keyword. Decide whether to drop `hiring` from
       `job_subject_keywords` — it is the loosest one, but it is also the fallback that
       catches boards not yet in `known_senders`.
-- [ ] **`--suggest-senders` flag.** Report inbox senders that are NOT in `known_senders`
-      but look job-shaped, so a new user isn't guessing what to put in their config.
-      This is the worst onboarding gap in the project.
+- [x] **`--suggest-senders` — done 2026-09-11** (`jobsift/senders.py`). Reads sender
+      and subject only (BODY.PEEK on a read-only INBOX), groups by base domain, and
+      prints the known_senders lines to paste; it never edits the config. Suggests one
+      address at a time where the domain also sends other mail (the LinkedIn lesson),
+      never a freemail domain, and also names silent known senders and senders that
+      get in only on a subject keyword. `dryrun_suggest_senders.py`. Shipped with
+      `--setup` (`jobsift/onboard.py`) and a Docker image, the rest of the onboarding gap.
 - [ ] **Two-phase IMAP fetch.** `gmail.py` downloads every message in the window in full
       (`RFC822`), one at a time. Fetch headers first, run `classify()`, then pull bodies
       only for job mail. Roughly a third of the window is Strava/GitHub/Google.
+      `GmailReader.fetch_headers` (batched, BODY.PEEK) now exists for --suggest-senders
+      and is the first half of this. Worth doing for a second reason: `fetch_recent`
+      selects INBOX read-write and fetches `RFC822`, which per RFC 3501 sets `\Seen`,
+      so every message in the lookback window - personal mail included - is marked
+      read. `BODY.PEEK[]` would not.
 - [x] **Malformed URLs (was misdiagnosed as "Jobstreet enrichment fails").** The real
       cause was `mask_urls`: `https?://\S+` is greedy over non-whitespace, so a link
       written as `[https://...]` captured the closing bracket. 24% of stored URLs ended

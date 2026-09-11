@@ -36,6 +36,12 @@ pip install -r requirements.txt
 
 ## 2. Configure
 
+`python -m jobsift --setup` does this whole section for you. It makes the files
+below from their examples, asks for each account in turn, and checks that each one
+signs in before saving it. Secrets go to `.env` only, `config.yaml` keeps every
+comment, and running it again changes only what you change. The rest of this
+section is what it does, for doing it by hand or checking its work.
+
 ```bash
 cp .env.example .env                  # fill in secrets
 cp config.example.yaml config.yaml    # tune settings
@@ -252,6 +258,17 @@ figure. That figure is what you would accept from an unknown employer; one who h
 published a band has already told you their budget.
 
 ## 3. Test it once
+
+First, find out which of your emails it will recognise:
+
+```bash
+python -m jobsift --suggest-senders       # the last 30 days; pass a number for more
+```
+
+It lists senders that look like job alerts but are not in `known_senders`, with the
+lines to paste, and names the known ones that sent nothing. It reads only senders
+and subjects, marks nothing read, and changes nothing.
+[job-alert-sources.md](job-alert-sources.md) has the details. Then one pass:
 
 ```bash
 python -m jobsift --once --no-telegram    # score and store everything, alert nobody
@@ -485,6 +502,33 @@ Steady-state passes are far shorter, because a listing already in `seen_jobs` no
 longer costs a detail fetch. Size the interval on your slowest pass rather than
 your typical one, or use Option A or B, where the program's own loop paces itself
 and cannot overlap.
+
+**Option D — Docker** (any machine with Docker, a VPS included): nothing to install
+but Docker. The image holds the code and nothing of yours. `.dockerignore` is an
+allowlist, so `.env`, the service-account key, your resume and the database cannot
+end up inside it, and `compose.yaml` mounts this folder at `/work`, where they stay.
+
+```bash
+git clone <your-repo-url> jobsift && cd jobsift
+docker compose run --rm jobsift --setup     # the same setup, inside the container
+docker compose up -d                        # run it; restarts on failure and at boot
+docker compose logs -f                      # watch it
+```
+
+Every other command works the same way, and anything it writes lands in this
+folder: `docker compose run --rm jobsift --export jobs.csv`. Upgrading is
+`git pull && docker compose up -d --build`; the database migrates itself on start,
+as it does anywhere else.
+
+What differs from running it directly:
+
+| | |
+|---|---|
+| **File ownership (Linux)** | The container runs as uid 1000 and has to write `data/`. If `id -u` says something else, start it as `JOBSIFT_UID=$(id -u) JOBSIFT_GID=$(id -g) docker compose up -d`. Docker Desktop on Windows and macOS does not care |
+| **The evidence index** | Not in the image: it needs `git`, the `gh` CLI and your repos on disk. Build the brief where the repos live, as the residential worker does, and set `evidence.roots: []` in the container's config so it is not rebuilt from nothing |
+| **Hardening** | Read-only filesystem, no Linux capabilities, `no-new-privileges`, a 256 MB memory cap: Option A's systemd settings, in compose form |
+| **One copy** | Still one copy per database. `restart: unless-stopped` brings it back after a reboot, so stop any Task Scheduler job or systemd unit first |
+| **The code** | Always the image's, even with a checkout mounted at `/work` (`PYTHONSAFEPATH`). A `git pull` changes nothing until `--build` |
 
 ## Notes
 

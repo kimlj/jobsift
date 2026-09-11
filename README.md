@@ -80,9 +80,8 @@ and read the CSV before scheduling anything.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env                  # fill in secrets
-cp config.example.yaml config.yaml    # tune settings
-cp resume.example.txt resume.txt      # paste your profile
+python -m jobsift --setup         # makes the files, asks for each account, checks each one works
+python -m jobsift --suggest-senders   # which of your emails are job alerts it does not know yet
 cp career.example.yaml career.yaml    # optional: what your repos are, with sources
 
 python -m jobsift --index-repos   # count your repos into the brief drafts are written from
@@ -94,6 +93,17 @@ python -m jobsift                 # run continuously
 python -m jobsift --export jobs.csv      # every stored job, one row each, for Excel
 python -m jobsift --draft "Acme" --posting posting.txt   # cover letter + answers
 ```
+
+**`--setup`** makes `config.yaml`, `.env`, `resume.txt` and `profile.yaml` from the
+examples, then asks for an AI key, your Gmail app password, and optionally a
+Telegram bot and a Google Sheet, checking that each one signs in before it is
+saved. Secrets go to `.env` only, `config.yaml` keeps every comment, and running it
+again changes only what you change. To do it by hand instead, copy the `*.example`
+files and fill them in; [docs/deploy.md](docs/deploy.md) explains every field.
+
+**With Docker** there is nothing to install but Docker:
+`docker compose run --rm jobsift --setup`, then `docker compose up -d`. See
+*Option D* in [docs/deploy.md](docs/deploy.md).
 
 **`--export`** is the counterpart to Telegram. Telegram is deliberately sparse —
 it only ever shows jobs over the alert threshold — so the CSV is how you see what
@@ -141,6 +151,8 @@ jobsift/            the app
   notify.py             optional Telegram output
   utils.py              shared helpers (title/company normalisation, job_key)
   pipeline.py           orchestration
+  onboard.py            --setup: connect each account and check it works
+  senders.py            --suggest-senders: alert senders config.yaml is missing
   sources/              optional non-email sources (opt-in, off by default)
     jobstreet.py        Jobstreet PH via SEEK's public search API
     remote_feeds.py     remotive / Working Nomads / himalayas / jobicy
@@ -148,6 +160,7 @@ jobsift/            the app
 config.example.yaml     copy to config.yaml
 career.example.yaml     copy to career.yaml (optional)
 .env.example            copy to .env
+Dockerfile, compose.yaml  the container (docs/deploy.md, Option D)
 applier/                (planned) Claude-in-Chrome auto-applier
 ```
 
@@ -203,7 +216,7 @@ Never commit real tokens. If one leaks into git history, rotate it.
 
 ## Contributing
 
-There is no test suite; there are thirteen `dryrun_*.py` scripts, seven of which run
+There is no test suite; there are fifteen `dryrun_*.py` scripts, nine of which run
 offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for which need a key or network,
 and how to test a source adapter without hitting a live board.
 
