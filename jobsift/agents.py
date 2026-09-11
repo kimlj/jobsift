@@ -37,6 +37,8 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
+from .career import check_text
+
 logger = logging.getLogger(__name__)
 
 # Beyond this, verification costs more than the draft it is checking. A letter
@@ -149,7 +151,9 @@ Return raw JSON only:
 A VERIFIER REJECTED CLAIMS IN YOUR PREVIOUS DRAFT. Fix each one. An "overstated"
 claim is usually true in a smaller form - find the honest version in the sources
 and use it rather than deleting the point. An "unsupported" claim must go: there is
-nothing in the sources that lets the candidate say it.
+nothing in the sources that lets the candidate say it. A "rule" is a hard constraint
+from the candidate's own evidence file, checked word for word: satisfy it exactly
+as its reason says, in the document it names.
 
 {lines}"""
 
@@ -159,8 +163,9 @@ def _sources(resume: str, profile: dict, evidence: str) -> str:
              f"CANDIDATE PROFILE (trusted):\n{json.dumps(profile, indent=2, default=str)}"]
     if evidence:
         parts.append(
-            "REPO EVIDENCE (trusted; counted from the candidate's own repositories,\n"
-            "so these numbers are facts and may be cited):\n" + evidence)
+            "EVIDENCE BRIEF (trusted; counted from the candidate's own repositories or\n"
+            "written by the candidate with a checked source for every line, so these are\n"
+            "facts and may be cited - and its cautions bind every draft):\n" + evidence)
     return "\n\n".join(parts)
 
 
@@ -260,13 +265,28 @@ def verify(llm, model: str, claims: list[str], sources: str) -> list[dict]:
     ]
 
 
+def check_rules(result: dict, rules: list[dict]) -> list[dict]:
+    """The evidence file's rules, run over each finished document. No model call.
+
+    Separate from the verifier on purpose. The verifier judges whether a claim is
+    supported, which needs a model; "570 players never appears without the daily
+    count" needs only a string test, and a string test cannot be talked out of it.
+    """
+    return [
+        {"claim": f"{label}: {hit['problem']}", "verdict": "rule", "why": hit["why"]}
+        for label, key in (("cover letter", "cover_letter"),
+                           ("tailored resume", "tailored_resume"))
+        for hit in check_text(str(result.get(key) or ""), rules)
+    ]
+
+
 def run(llm, models: dict, job: dict, posting: str, resume: str, profile: dict,
-        evidence: str = "") -> dict:
+        evidence: str = "", rules: list[dict] | None = None) -> dict:
     """Extract, draft, verify, revise. Returns a draft plus what was checked.
 
     `models` takes "extract", "draft" and "verify" keys; the cheap model does two
     of the three jobs, because reading a posting and checking one sentence are not
-    where the capability is needed.
+    where the capability is needed. `rules` come from career.yaml.
     """
     extracted = extract(llm, models["extract"], posting, str(job.get("url") or ""))
     if not extracted:
@@ -285,12 +305,13 @@ def run(llm, models: dict, job: dict, posting: str, resume: str, profile: dict,
             logger.warning("agents: drafter returned nothing usable")
             return {}
 
-        checks = verify(llm, models["verify"], result.get("claims") or [], sources)
+        checks = (verify(llm, models["verify"], result.get("claims") or [], sources)
+                  + check_rules(result, rules or []))
         # Only a verdict the drafter can act on goes back to it. "unchecked" means
         # nobody looked - a cap, or a verifier that returned nothing - and sending
         # that back would have the drafter rewriting a claim on no evidence at all.
         rejections = [c for c in checks
-                      if c.get("verdict") in ("overstated", "unsupported")]
+                      if c.get("verdict") in ("overstated", "unsupported", "rule")]
         logger.info("agents: round %d — %d claim(s), %d rejected, %d unchecked",
                     attempt + 1, len(checks), len(rejections),
                     sum(1 for c in checks if c.get("verdict") == "unchecked"))
