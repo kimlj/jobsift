@@ -563,11 +563,31 @@ google_sheet:
 #
 # So point this at your repos. Counting them gives the drafter a third trusted
 # source that cannot drift from the code, because it IS the code: migrations,
-# policies, indexes, commits, dependencies. Refresh with `--index-repos`; it also
-# runs before drafting.
+# policies, indexes, commits, dependencies.
+#
+# Then write career.yaml (copy career.example.yaml): which repo is which product,
+# facts with a source for each, and rules a draft must pass. `--index-repos`
+# merges both into one brief that the drafter and verifier read. `--index-status`
+# says whether it is current; `--check-draft FILE` runs the rules over a document.
 evidence:
   enabled: true
   out: ./data/evidence.yaml
-  repos:
-    - /path/to/your/repo
-    - /path/to/another
+  career: ./career.yaml
+  brief: ./data/career-brief.md
+  # Every git repo directly under a root is found and named by its GitHub remote,
+  # so folder names do not matter and two clones of one repo count once. Repos
+  # whose remote belongs to someone else are skipped.
+  github_user: yourhandle
+  roots:
+    - /path/to/your/projects
+  # Your git author names or emails. Commits by anyone else - a template, an
+  # upstream you started from - are then reported separately from yours.
+  authors: [you@example.com]
+  # Repos that exist only on GitHub are cloned here and counted too.
+  mirror_dir: ./data/mirrors
+  # Optional: a portfolio page with a skills ledger (skill-row / skill-where markup).
+  portfolio_html: ""
+  # Anything outside a root, and folders or repo names to ignore. A merged PR into
+  # a skipped repo is left out of the upstream-contributions list too.
+  repos: []
+  skip: []

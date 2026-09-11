@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from pathlib import Path
 
 from .config import load_config
 from .gmail import GmailReader
@@ -27,17 +28,24 @@ def _make_draft(config, llm, job, posting, resume, profile):
         from .agents import run, to_draft_result
 
         evidence = ""
+        rules: list = []
         settings = config.evidence or {}
         if settings.get("enabled"):
+            from . import career
             from .evidence import load_index, summarise
 
-            evidence = summarise(load_index(settings.get("out", "./data/evidence.yaml")))
+            # The brief when it has been built, since it carries what the counts
+            # cannot: which repo is which product, and what must never be said.
+            brief = Path(settings.get("brief") or "./data/career-brief.md")
+            evidence = (brief.read_text(encoding="utf-8") if brief.is_file()
+                        else summarise(load_index(settings.get("out", "./data/evidence.yaml"))))
+            rules = career.load(settings.get("career") or "./career.yaml").get("rules") or []
         models = {
             "extract": config.models.get("extract", config.models["score"]),
             "draft": config.models.get("draft", config.models["score"]),
             "verify": config.models.get("verify", config.models["score"]),
         }
-        raw = run(llm, models, job, posting, resume, profile, evidence)
+        raw = run(llm, models, job, posting, resume, profile, evidence, rules)
         if raw:
             return to_draft_result(raw, profile, len(posting))
         log.warning("Multi-agent drafting produced nothing; falling back to one call")
@@ -308,8 +316,26 @@ def main() -> None:
     parser.add_argument(
         "--index-repos",
         action="store_true",
-        help="Re-count the repos in config.yaml's `evidence:` block and exit. The "
-             "index is what lets a draft claim work the resume forgot to mention.",
+        help="Rebuild the evidence index and exit: find and count every repo, "
+             "merge career.yaml, write data/career-brief.md. The brief is what "
+             "lets a draft claim work the resume forgot to mention.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="With --index-repos: count only what is on disk, never touch GitHub.",
+    )
+    parser.add_argument(
+        "--index-status",
+        action="store_true",
+        help="Say whether the evidence brief is current, and exit 1 if it is not.",
+    )
+    parser.add_argument(
+        "--check-draft",
+        nargs="+",
+        metavar="FILE",
+        help="Run career.yaml's rules over finished documents (.txt, .md, .pdf); "
+             "exit 1 on any violation. No model involved.",
     )
     parser.add_argument(
         "--sync-usage",
@@ -449,18 +475,83 @@ def main() -> None:
     config.filters["usd_to_php"] = _rate
     log.info("USD to PHP: %.2f (%s)", _rate, _note)
 
-    if args.index_repos:
-        from .evidence import summarise, write_index
+    evidence_settings = config.evidence or {}
+    career_path = evidence_settings.get("career") or "./career.yaml"
+    brief_path = evidence_settings.get("brief") or "./data/career-brief.md"
 
-        settings = config.evidence or {}
-        repos = settings.get("repos") or []
-        if not repos:
-            raise SystemExit("No `evidence.repos` in config.yaml to index.")
-        index = write_index(repos, settings.get("out", "./data/evidence.yaml"))
-        print(summarise(index))
-        missing = len(repos) - len(index)
-        print(f"\nindexed {len(index)} repo(s) into {settings.get('out')}"
-              + (f"; {missing} path(s) not found" if missing else ""))
+    if args.index_repos:
+        from . import career
+        from .evidence import summarise, write_evidence
+
+        if not (evidence_settings.get("roots") or evidence_settings.get("repos")):
+            raise SystemExit("No `evidence.roots` or `evidence.repos` in config.yaml to index.")
+        payload = write_evidence(evidence_settings, fetch=not args.offline)
+        print(summarise(payload["repos"]))
+        problems = career.write_brief(career_path, payload, brief_path)
+        for name, why in (payload.get("not_counted") or {}).items():
+            print(f"not counted: {name} - {why}")
+        for pair in payload.get("merged_clones") or []:
+            print(f"one repo, two copies: {pair}")
+        if not evidence_settings.get("authors"):
+            print("\nNo `evidence.authors` in config.yaml, so every tracked file counts, "
+                  "including code you cloned or started from. Set it to count only your commits.")
+        print(f"\nindexed {len(payload['repos'])} repo(s) into {evidence_settings.get('out')}"
+              f"; brief written to {brief_path}"
+              + ("" if payload.get("fetched_from_github") else " (GitHub not consulted)"))
+        if problems:
+            print(f"\n{len(problems)} curated line(s) failed their source check and were "
+                  "LEFT OUT of the brief:")
+            print("\n".join(f"  {p}" for p in problems))
+        # The master resume is the document most likely to break a rule, because
+        # it predates most of them. Say so here, where it will be seen.
+        rules = career.load(career_path).get("rules") or []
+        resume_hits = career.check_text(Path(config.resume_path).read_text(encoding="utf-8"),
+                                        rules) if Path(config.resume_path).is_file() else []
+        if resume_hits:
+            print(f"\n{config.resume_path} breaks {len(resume_hits)} rule(s):")
+            print("\n".join(f"  {h['rule']}: {h['problem']}" for h in resume_hits))
+        return
+
+    if args.index_status:
+        from .evidence import load_evidence, stale_repos
+
+        payload = load_evidence(evidence_settings.get("out") or "./data/evidence.yaml")
+        stale = stale_repos(payload)
+        brief = Path(brief_path)
+        edited = (Path(career_path).is_file() and brief.is_file()
+                  and Path(career_path).stat().st_mtime > brief.stat().st_mtime)
+        if not brief.is_file():
+            stale.append("(no brief has been built)")
+        if edited:
+            stale.append(f"({career_path} was edited after the brief was built)")
+        if stale:
+            print("STALE - rebuild with --index-repos. Changed since the count: "
+                  + ", ".join(stale))
+            raise SystemExit(1)
+        print(f"current - {brief_path}, counted {payload.get('generated_at')}")
+        return
+
+    if args.check_draft:
+        from . import career
+
+        rules = career.load(career_path).get("rules") or []
+        if not rules:
+            raise SystemExit(f"No rules in {career_path} to check against.")
+        broken = 0
+        for name in args.check_draft:
+            path = Path(name)
+            if path.suffix.lower() == ".pdf":
+                from pypdf import PdfReader
+
+                text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+            else:
+                text = path.read_text(encoding="utf-8")
+            hits = career.check_text(text, rules)
+            broken += len(hits)
+            print(f"{name}: " + ("ok" if not hits else f"{len(hits)} rule(s) broken"))
+            print("\n".join(f"  {h['rule']}: {h['problem']}. {h['why']}" for h in hits))
+        if broken:
+            raise SystemExit(1)
         return
 
     if args.sync_usage:
