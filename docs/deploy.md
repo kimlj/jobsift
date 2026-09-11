@@ -12,7 +12,7 @@ may not work from a datacenter*.
 | What you want | Where to run it |
 |---|---|
 | Email alerts and the remote JSON feeds | A server. Unattended, always on, nothing blocked |
-| `onlinejobs.ph`, or any board that 403s a datacenter | A machine on a residential connection: a laptop, or a small always-on box at home |
+| `onlinejobs.ph`, or any board that 403s a datacenter | A machine on a residential connection: a laptop, or a small always-on box at home. Or split: the core on a server and a [residential worker](residential-worker.md) at home reading only these boards |
 | Both | Still **one** host. Pick whichever carries the sources you actually use |
 
 The email half is most of jobsift and works anywhere, so a server is the right

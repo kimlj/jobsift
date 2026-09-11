@@ -234,7 +234,7 @@ months.
 |---|---|---|
 | Keep the laptop | Nothing (watchdog now restarts it) | Nothing lost; alerts delayed while it sleeps |
 | Always-on box at home (N100 mini PC, Pi, NAS) running **all** of jobsift | Copy `jobs.db`, install the existing systemd unit, retire the laptop task | Every source 24/7 from a residential IP, one machine, no new code |
-| VPS runs everything except onlinejobs.ph; laptop scrapes onlinejobs.ph and feeds the VPS | New scraper-only mode, an "which are new?" query and an ingest path to the VPS (SSH), drafting and the evidence brief move to the VPS | Email and feeds 24/7; onlinejobs.ph only while the laptop is awake; two machines to maintain |
+| VPS runs everything except onlinejobs.ph; laptop scrapes onlinejobs.ph and feeds the VPS | **Built** as the residential worker (`jobsift/worker.py`, [residential-worker.md](residential-worker.md)): a pinned SSH key, an inbox the core's loop reads, a `seen` query, pushed brief and personal files | Email and feeds 24/7; onlinejobs.ph only while the laptop is awake; one database, still one writer |
 
 ## Where to look
 

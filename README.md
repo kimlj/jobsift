@@ -109,6 +109,8 @@ with the word PURPLE") in the last lines to catch people who skimmed.
 
 What a draft may claim about you, and how to give it more than your resume →
 [docs/evidence-index.md](docs/evidence-index.md).
+Running on a server while onlinejobs.ph is read from home →
+[docs/residential-worker.md](docs/residential-worker.md).
 Full deployment — systemd, Windows Task Scheduler or cron, and how the host you
 pick decides which sources you can have → [docs/deploy.md](docs/deploy.md).
 Which boards to subscribe to → [docs/job-alert-sources.md](docs/job-alert-sources.md).
@@ -132,6 +134,7 @@ jobsift/            the app
   agents.py             drafting as roles: extract, draft, verify each claim
   evidence.py           counts your repos: commits, stack, migrations, CI
   career.py             career.yaml + the counts -> the evidence brief; rule checks
+  worker.py             residential worker: onlinejobs.ph from home, the rest on a server
   store.py              SQLite dedup + job log (versioned migrations)
   export.py             every stored job → CSV for Excel
   sheets.py             optional Google Sheet output
@@ -200,7 +203,7 @@ Never commit real tokens. If one leaks into git history, rotate it.
 
 ## Contributing
 
-There is no test suite; there are twelve `dryrun_*.py` scripts, six of which run
+There is no test suite; there are thirteen `dryrun_*.py` scripts, seven of which run
 offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for which need a key or network,
 and how to test a source adapter without hitting a live board.
 

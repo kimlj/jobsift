@@ -488,6 +488,28 @@ scrape_sources:
                        automation, ai, ml, llm, n8n, integration, scripting, data]
     exclude_keywords: [drafter, furniture, cad, autocad, content writer, copywriter,
                        video editor, bookkeeper]
+  # Batches from a residential worker (docs/residential-worker.md): a machine at
+  # home that reads onlinejobs.ph, which answers a datacenter with a 403, and
+  # delivers what it finds here over SSH. Enable it on the core only. It is read
+  # every pass by this process, which stays the only one writing the database.
+  worker_inbox:
+    enabled: false
+    dir: ./data/inbox
+
+# ── Residential worker (optional) ──
+#
+# Set on the machine at home, never on the core. With enabled: true,
+# `python -m jobsift` runs the worker loop instead of the pipeline: it reads
+# onlinejobs.ph with the onlinejobs_ph block above (whether or not that block is
+# enabled), asks the core which listings it already has, delivers the rest, and
+# pushes the evidence brief, career.yaml, resume and profile whenever they
+# change. It never opens the database, and refuses the commands that would.
+# Setup, including the pinned SSH key: docs/residential-worker.md.
+worker:
+  enabled: false
+  ssh: you@core                   # user@host of the core
+  ssh_key: ~/.ssh/jobsift_worker  # a key the core pins to --worker-serve
+  outbox: ./data/outbox
 
 # Send a Telegram alert when a job's total score is at least this (out of 100)
 score_threshold: 60
