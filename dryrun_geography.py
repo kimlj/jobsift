@@ -173,7 +173,7 @@ else:
         print(f"    {loc!r} — {title} — {why}")
 
 if "--offline" in sys.argv:
-    sys.exit(0)
+    sys.exit(1 if failed else 0)
 
 print("\n── live feeds ──")
 for name, (url, shape) in FEEDS.items():
@@ -205,3 +205,6 @@ for name, (url, shape) in FEEDS.items():
         print(f"   dropped {n:>4}  {reason}")
     for job in kept[:3]:
         print(f"   kept          {job['location']!r} — {(job['title'] or '')[:48]}")
+
+# The feeds are a measurement, not a verdict; only the cases are.
+sys.exit(1 if failed else 0)

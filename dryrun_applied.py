@@ -101,3 +101,4 @@ for label, confirmations, expect_matched in [
           f"unmatched {len(unmatched)}  {list(matched)}")
 
 print("\n" + ("-" * 78) + f"\n{'all cases behaved' if not failures else f'{failures} FAILED'}")
+raise SystemExit(1 if failures else 0)

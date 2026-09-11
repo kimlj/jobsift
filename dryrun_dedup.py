@@ -72,7 +72,7 @@ try:
     rows = sqlite3.connect("data/jobs.db").execute("select data from jobs").fetchall()
 except sqlite3.Error as exc:
     print(f"  no readable database ({exc})")
-    raise SystemExit(0)
+    raise SystemExit(1 if failed else 0)
 
 groups = collections.defaultdict(list)
 for (data,) in rows:
@@ -96,3 +96,6 @@ shown = [(n, normalize_company(n)) for n in names if n.lower() != normalize_comp
 for before, after in shown[:12]:
     print(f"  {before!r:48} -> {after!r}")
 print(f"  ... {len(shown)} of {len(names)} employer names normalise to something shorter")
+
+# The database passes are for reading; only the pairs are a verdict.
+raise SystemExit(1 if failed else 0)

@@ -183,3 +183,4 @@ check("so does everything still on the shortlist",
 
 print("\n" + ("-" * 78) +
       f"\n{'all cases behaved' if not failures else f'{failures} FAILED'}")
+raise SystemExit(1 if failures else 0)
