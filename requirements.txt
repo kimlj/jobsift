@@ -12,3 +12,6 @@ openai>=1.40
 # Only needed if you enable the Google Sheet output:
 gspread>=6.0
 google-auth>=2.30
+
+# Reads a resume PDF in --setup, and finished drafts in --check-draft:
+pypdf>=4.0

@@ -115,10 +115,10 @@ def _find(lines: list[str], start: int, end: int, indent: str, key: str):
 
 
 def set_yaml_value(text: str, path: tuple, value, insert: bool = False) -> str:
-    """Replace one scalar in config.yaml's text, keeping every comment.
+    """Replace one value in config.yaml's text, keeping every comment.
 
-    Only the two shapes this file uses: a top-level key, and a key one level
-    inside a top-level block. A path it cannot find is an error rather than an
+    A key at any depth, found block by block, so the `enabled` under remote_feeds
+    is never the `enabled` of some other block. A path it cannot find is an error rather than an
     append, because a config.yaml without google_sheet.sheet_id where the example
     puts it has been rearranged by someone who should decide where it goes.
 
@@ -128,22 +128,27 @@ def set_yaml_value(text: str, path: tuple, value, insert: bool = False) -> str:
     """
     eol = _eol(text)
     lines = text.split(eol)
-    if len(path) == 1:
-        start, end, indent = 0, len(lines), ""
-    elif len(path) == 2:
-        block = _find(lines, 0, len(lines), "", path[0])
+    start, end, indent, block = 0, len(lines), "", None
+    for depth, parent in enumerate(path[:-1]):
+        block = _find(lines, start, end, indent, parent)
         if block is None:
-            raise SetupError(f"config.yaml has no `{path[0]}:` section")
-        start = end = block[0] + 1
-        while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
-            end += 1
+            raise SetupError(f"config.yaml has no `{'.'.join(path[:depth + 1])}:` section")
+        # The block runs to the next line at its own depth or shallower that is
+        # not a comment. Blank lines and comments inside it belong to it.
+        start = stop = block[0] + 1
+        while stop < end:
+            line = lines[stop]
+            stripped = line.strip()
+            if (stripped and not stripped.startswith("#")
+                    and len(line) - len(line.lstrip()) <= len(indent)):
+                break
+            stop += 1
+        end = stop
         # The block's own indentation, from its first key, so a key nested deeper
         # inside it is never mistaken for one of its own.
         indent = next((re.match(r"[ \t]+", line).group(0) for line in lines[start:end]
                        if line.strip() and line[0] in " \t" and not line.lstrip().startswith("#")),
-                      "  ")
-    else:
-        raise ValueError(f"unsupported path {path}")
+                      indent + "  ")
 
     found = _find(lines, start, end, indent, path[-1])
     if found is not None:
@@ -244,6 +249,30 @@ def read_service_account(path: str) -> str:
     if not data.get("client_email") or not data.get("private_key"):
         raise SetupError("the key file is missing client_email or private_key; download a new one")
     return data["client_email"]
+
+
+def resume_text(path: Path) -> str:
+    """The text of a resume file: plain text as it is, a PDF through pypdf."""
+    suffix = path.suffix.lower()
+    if suffix in (".doc", ".docx", ".odt", ".pages"):
+        raise SetupError("save it as a PDF or a .txt file first; Word files are not read")
+    if suffix != ".pdf":
+        return path.read_text(encoding="utf-8", errors="replace")
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise SetupError("reading a PDF needs pypdf (pip install pypdf); or save it as .txt") from None
+    try:
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+    except Exception as err:
+        raise SetupError(f"could not read that PDF ({type(err).__name__})") from None
+    if not text.strip():
+        raise SetupError("that PDF holds pictures of text, not text; save the resume as .txt")
+    return text
+
+
+def _same_text(a: Path, b: Path) -> bool:
+    return _read(a).replace("\r\n", "\n") == _read(b).replace("\r\n", "\n")
 
 
 def _mask(secret: str) -> str:
@@ -453,6 +482,22 @@ SHARE_HELP = """\
      as an Editor. Everything else can be right and it still fails without this.
 """
 
+SOURCES_HELP = """\
+  jobsift reads the job-alert emails that arrive in {gmail}. It finds nothing from
+  the job boards until you subscribe to their alerts with that address. On each
+  board, search for the work you want and turn on email alerts for that search:
+    Indeed      https://ph.indeed.com
+    LinkedIn    https://www.linkedin.com/jobs
+    Jobstreet   https://ph.jobstreet.com
+    more boards, and what each one sends: docs/job-alert-sources.md
+  A few days later, {cmd} --suggest-senders shows which alerts are arriving.
+
+  It can also read four free remote-job feeds (Remotive, Working Nomads, Himalayas
+  and Jobicy) with no sign-up, keeping only remote jobs open to someone in the
+  Philippines. onlinejobs.ph is not read unless you switch it on in config.yaml:
+  its terms forbid automated access, so that is your decision to make.
+"""
+
 
 class _Wizard:
     def __init__(self, config_path: Path, env_path: Path, profile_path: Path,
@@ -467,7 +512,7 @@ class _Wizard:
     # small pieces --------------------------------------------------------
 
     def _title(self, number, name: str) -> None:
-        self.out(f"\n{number} of 6 - {name}\n" if number else f"\n{name}\n")
+        self.out(f"\n{number} of 8 - {name}\n" if number else f"\n{name}\n")
 
     def _config_now(self) -> dict:
         if not self.config_path.is_file():
@@ -530,7 +575,9 @@ class _Wizard:
             return 1
         self._llm()
         self._gmail()
+        self._resume()
         self._search()
+        self._sources()
         self._telegram()
         self._sheet()
         return self._finish()
@@ -624,6 +671,57 @@ class _Wizard:
             self.out("  saved.")
             return
 
+    def _resume(self) -> None:
+        """The resume every job is scored against: a file, or text pasted in.
+
+        Until 2026-09-11 setup only warned at the very end that resume.txt was
+        still the example, and a first run then scored every job against a
+        stranger's resume.
+        """
+        self._title(4, "Your resume")
+        self.out("  Every job is scored against your resume, so it has to be yours. A .txt or\n"
+                 "  .pdf file works, or paste the text straight in.")
+        path = Path(str(self._config_now().get("resume_path") or "./resume.txt"))
+        example = self.examples / "resume.example.txt"
+        if path.is_file() and not (example.is_file() and _same_text(path, example)):
+            words = len(_read(path).split())
+            if not self._yes(f"{path} already holds a resume ({words} words). Replace it?", False):
+                return
+        if os.environ.get("JOBSIFT_DOCKER"):
+            self.out("  (In Docker, a file has to be inside the jobsift folder.)")
+        while True:
+            first = self.ask("  Path to your resume, or paste it and end with a line "
+                             "saying END: ").strip()
+            if not first:
+                self.out(f"  Skipped. Put your resume in {path} before the first run.")
+                return
+            file = Path(first.strip("\"'"))
+            if file.is_file():
+                try:
+                    text = resume_text(file)
+                except SetupError as err:
+                    self.out(f"  not working: {err}.")
+                    continue
+            else:
+                pasted = [first]
+                while True:
+                    try:
+                        line = self.ask("")
+                    except EOFError:
+                        break
+                    if line.strip() == "END":
+                        break
+                    pasted.append(line)
+                text = "\n".join(pasted)
+            words = len(text.split())
+            if words < 50 and not self._yes(
+                    f"That is only {words} words; a resume is usually a few hundred. "
+                    "Use it anyway?", False):
+                continue
+            _write(path, text.strip() + "\n")
+            self.out(f"  saved to {path} ({words} words).")
+            return
+
     def _number(self, prompt: str, current: int, low: int = 0, high: int | None = None) -> int:
         """A whole number, as typed by a person: "50,000" and "50k" both mean 50000."""
         while True:
@@ -660,7 +758,7 @@ class _Wizard:
         list is written only when its answer changed: pressing Enter leaves a
         hand-commented list in config.yaml exactly as it was.
         """
-        self._title(4, "Your search")
+        self._title(5, "Your search")
         self.out("  What to keep and what to leave out, before anything is spent on a job.\n"
                  "  All optional, and it starts open. Type words separated by commas, press\n"
                  "  Enter to keep what is there, or type none to empty a list. Words match\n"
@@ -714,8 +812,33 @@ class _Wizard:
         else:
             self.out("  nothing changed.")
 
+    def _sources(self) -> None:
+        """Where the jobs come from, said before the first run finds none.
+
+        A new install reads an inbox with no job alerts in it yet, so without
+        this step its first pass ends with "0 new jobs" and no reason given.
+        """
+        self._title(6, "Where jobs come from")
+        self.out(SOURCES_HELP.format(
+            gmail=self._env_now().get("GMAIL_ADDRESS") or "your Gmail", cmd=self.cmd))
+        cfg = self._config_now()
+        feeds = (cfg.get("scrape_sources") or {}).get("remote_feeds") or {}
+        on = bool(feeds.get("enabled"))
+        answer = self._yes("Read the free remote job feeds? (recommended)", on)
+        if answer != on:
+            try:
+                self._save_config([(("scrape_sources", "remote_feeds", "enabled"), answer)],
+                                  insert=True)
+                self.out("  saved.")
+            except SetupError as err:
+                self.out(f"  could not change it: {err}. Set scrape_sources.remote_feeds.enabled "
+                         "in config.yaml by hand.")
+        if answer and not (cfg.get("filters") or {}).get("include_titles"):
+            self.out("  With no job words from step 5, the feeds bring every kind of remote job,\n"
+                     "  and each new one costs an AI call to score. Add words there to narrow them.")
+
     def _telegram(self) -> None:
-        self._title(5, "Telegram alerts (optional)")
+        self._title(7, "Telegram alerts (optional)")
         self.out("  The best matches arrive as a message on your phone. Free, about two minutes.")
         env = self._env_now()
         token_now = env.get("TELEGRAM_BOT_TOKEN") or ""
@@ -785,7 +908,7 @@ class _Wizard:
             self.out("  pick a number from the list")
 
     def _sheet(self) -> None:
-        self._title(6, "Google Sheet (optional)")
+        self._title(8, "Google Sheet (optional)")
         sheet_cfg = self._config_now().get("google_sheet") or {}
         current_id = str(sheet_cfg.get("sheet_id") or "")
         current_id = "" if current_id in PLACEHOLDERS else current_id

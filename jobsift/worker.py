@@ -529,7 +529,10 @@ def run(config, profile_path: str, once: bool = False) -> None:
     transport = SSHTransport(settings["ssh"], settings.get("ssh_key") or "",
                              settings.get("ssh_command") or "ssh")
     outbox = Path(settings.get("outbox") or "./data/outbox")
-    olj = dict((config.scrape_sources or {}).get("onlinejobs_ph") or {})
+    from .sources import with_search_words
+
+    olj = with_search_words(dict((config.scrape_sources or {}).get("onlinejobs_ph") or {}),
+                            config.filters or {})
     interval = float(olj.get("interval_seconds") or config.scrape_interval_seconds or 1200)
     evidence = config.evidence or {}
     files = {"brief": evidence.get("brief") or "./data/career-brief.md",

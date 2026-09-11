@@ -27,6 +27,27 @@ logger = logging.getLogger(__name__)
 DEFAULT_SCRAPE_INTERVAL = 1200
 
 
+def with_search_words(settings: dict, filters: dict) -> dict:
+    """A source's own word lists, or the person's job words where it has none.
+
+    Each adapter has its own search_keywords and include_keywords, and until
+    2026-09-11 the example shipped the author's (developer, AI, automation...),
+    so a user who typed "virtual assistant" into --setup still had onlinejobs.ph
+    searching for developers and throwing their VA jobs away at its title gate.
+    An empty list now takes filters.include_titles; a source that names its own
+    words keeps them. exclude_keywords is not filled: filters.exclude_titles
+    already applies to every source after the adapter.
+    """
+    words = [w for w in ((filters or {}).get("include_titles") or []) if str(w).strip()]
+    if not words:
+        return settings
+    out = dict(settings or {})
+    for key in ("search_keywords", "include_keywords"):
+        if not out.get(key):
+            out[key] = list(words)
+    return out
+
+
 def collect(config, store=None) -> list[dict]:
     """Run every enabled scrape source that is due. Never raises — a broken adapter
     must not take down the email pipeline, which is the part that always works.
@@ -43,6 +64,7 @@ def collect(config, store=None) -> list[dict]:
     for name, settings in sources.items():
         if not (settings or {}).get("enabled"):
             continue
+        settings = with_search_words(settings, getattr(config, "filters", {}) or {})
 
         if name == "worker_inbox":
             # Local and free to read, so every pass unless told otherwise. A

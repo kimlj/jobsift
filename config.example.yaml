@@ -277,11 +277,16 @@ skip_link_domains:
   # wasted request for an unreadable link on the phone.
   - ph.jobstreet.com
 
-# ── Optional non-email sources (OFF by default) ──
+# ── Non-email sources ──
 # The email path is the default and the point of this project: boards email you,
-# so nothing has to be scraped. These exist only for boards that offer no email
-# alerts at all. Enable deliberately, and read the board's Terms of Service first
-# — some prohibit automated access regardless of what their robots.txt allows.
+# so nothing has to be scraped. remote_feeds is ON here: four public JSON feeds,
+# no sign-up and no scraping, so a new install finds jobs before its first alert
+# email arrives. The others are OFF: enable them deliberately, and read the
+# board's Terms of Service first — some prohibit automated access regardless of
+# what their robots.txt allows.
+#
+# Every source's search_keywords and include_keywords may be left empty, and then
+# they follow filters.include_titles, the job words --setup asks for.
 scrape_sources:
   # ── Remote boards that publish a public JSON feed ──
   # Four feeds, one adapter. Unauthenticated GETs returning JSON with the FULL
@@ -302,7 +307,7 @@ scrape_sources:
   # ~105,000, cursor-paged, so max_pages is what controls its volume; jobicy up to
   # 100 per call and it is the only one whose own geo filter matches what we want.
   remote_feeds:
-    enabled: false
+    enabled: true
     feeds: [remotive, workingnomads, himalayas, jobicy]
     # Whole-word TITLE gate, applied before scoring — the same second gate
     # onlinejobs_ph has and jobstreet_api gets from its search keywords. Without
@@ -313,20 +318,15 @@ scrape_sources:
     # instead, so the gate has to live here.
     #
     # include_keywords is a WHITELIST: a title must match one of these or it is
-    # dropped. Leave it empty to keep everything, which is the old behaviour.
-    include_keywords: [developer, engineer, engineering, full stack, fullstack,
-                       backend, back end, frontend, front end, web, software,
-                       react, node, python, javascript, typescript, django,
-                       laravel, php, golang, rust, java, api, devops, sre,
-                       platform, architect, programmer, data engineer, machine
-                       learning, ml, ai, llm, automation, qa, sdet, cloud]
+    # dropped. Empty follows filters.include_titles; empty there too keeps every
+    # title. (The author's own list is 38 developer and AI words: developer,
+    # engineer, full stack, react, python, devops, ai, llm, automation...)
+    include_keywords: []
     # Fires only on titles that ALREADY passed include — the override for false
-    # positives, not a general junk filter. "engineer" catches Sales Engineer;
-    # "ai" would catch nothing on its own but "web" catches Web Content Writer.
-    exclude_keywords: [sales, account executive, recruiter, teacher, tutor,
-                       nurse, writer, copywriter, editor, designer, marketer,
-                       marketing, customer service, support agent, bookkeeper,
-                       accountant, paralegal, attorney, clerk]
+    # positives, not a general junk filter: a broad "engineer" also catches Sales
+    # Engineer, "web" catches Web Content Writer. filters.exclude_titles applies
+    # to this source too.
+    exclude_keywords: []
     max_pages: 5          # himalayas only — 20 jobs a page
     delay_seconds: 1
     # Per-feed settings, all optional.
@@ -397,24 +397,15 @@ scrape_sources:
     # "ai automation" added nothing. An employer who names the tool is describing
     # the actual work; one who writes "AI Engineer" is often describing something
     # else. So search what you would use, not what the role might be called.
-    search_keywords: [python developer, software engineer, full stack developer,
-                      backend developer, devops engineer, ai engineer,
-                      ai developer, web developer, automation specialist,
-                      integration engineer, rpa developer, n8n,
-                      claude, cursor, supabase, openai, open ai, api]
+    # Empty follows filters.include_titles, the job words --setup asks for.
+    search_keywords: []
     # The second gate, matching what onlinejobs_ph and remote_feeds have. It exists
     # because the broader keywords above drag in adjacent work: "automation
     # specialist" returns Funnel Builder Virtual Assistant, "rpa developer" returns
     # ABAP Developer Trainer, "integration engineer" returns ERP Project Manager.
     # Title only, whole word, applied before any scoring call.
-    include_keywords: [developer, engineer, programmer, architect, specialist,
-                       automation, software, web, full stack, fullstack, backend,
-                       frontend, data, ai, ml, python, javascript, typescript,
-                       react, node, api, devops, sre, cloud, platform, analyst]
-    exclude_keywords: [virtual assistant, assistant, trainer, teacher, tutor,
-                       project manager, product manager, account manager, sales,
-                       recruiter, nurse, accountant, bookkeeper, funnel,
-                       gohighlevel, ghl, copywriter, writer, seo]
+    include_keywords: []
+    exclude_keywords: []
   onlinejobs_ph:
     enabled: false
     max_pages: 2          # 30 listings/page; one page is only ~20h of a broad keyword
@@ -447,18 +438,15 @@ scrape_sources:
     fetch_details: true
     # `api`, `ai`, `automation` and `n8n` were already here; the tool names join
     # them for the reason documented on jobstreet_api above.
-    search_keywords: [developer, engineer, full stack, react, node, python,
-                      javascript, laravel, api, automation, ai, n8n,
-                      claude, cursor, supabase, openai, open ai]
+    # Empty follows filters.include_titles, the job words --setup asks for. With
+    # neither, the reader pages through the unfiltered board.
+    search_keywords: []
     # `automation` and `ai` were in search_keywords but NOT here, which meant the
     # adapter asked the board for automation work and then threw it away at this
     # gate. Added 2026-09-01 so the two lists agree. `senior`/`sr` need no entry —
     # they live in the shared filters.exclude_titles and apply to every source.
-    include_keywords: [developer, engineer, full stack, fullstack, backend, front end,
-                       frontend, web, software, react, node, python, javascript, api,
-                       automation, ai, ml, llm, n8n, integration, scripting, data]
-    exclude_keywords: [drafter, furniture, cad, autocad, content writer, copywriter,
-                       video editor, bookkeeper]
+    include_keywords: []
+    exclude_keywords: []
   # Batches from a residential worker (docs/residential-worker.md): a machine at
   # home that reads onlinejobs.ph, which answers a datacenter with a 403, and
   # delivers what it finds here over SSH. Enable it on the core only. It is read
@@ -573,7 +561,9 @@ google_sheet:
 # merges both into one brief that the drafter and verifier read. `--index-status`
 # says whether it is current; `--check-draft FILE` runs the rules over a document.
 evidence:
-  enabled: true
+  # Off here: it is for developers who want drafts to cite their own repos, and
+  # it needs the roots and authors below filled in first (docs/evidence-index.md).
+  enabled: false
   out: ./data/evidence.yaml
   career: ./career.yaml
   brief: ./data/career-brief.md

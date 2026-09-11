@@ -65,6 +65,8 @@ edits = [
     (("google_sheet", "service_account_file"), "./keys/robot key.json"),
     (("worker", "ssh"), "kim@203.0.113.7"),
     (("filters", "include_titles"), ["developer", "virtual assistant"]),
+    # Three levels down, and `enabled:` sits in several sibling blocks.
+    (("scrape_sources", "remote_feeds", "enabled"), False),
 ]
 text = original_text
 for path, value in edits:
@@ -189,6 +191,37 @@ check("the call-centre shortcut drops a named firm",
 check("and does nothing unless asked for",
       passes(posting("Developer", "Concentrix Philippines"), {"skip_call_centres": False})[0])
 
+# ── where jobs come from ─────────────────────────────────────────────────────
+print("\nwhere jobs come from\n" + "-" * 78)
+from jobsift.onboard import resume_text  # noqa: E402
+from jobsift.sources import with_search_words  # noqa: E402
+
+mine = {"include_titles": ["virtual assistant", "va"]}
+filled = with_search_words({"enabled": True, "include_keywords": [], "search_keywords": []}, mine)
+check("an empty source list takes the person's job words",
+      filled["include_keywords"] == filled["search_keywords"] == ["virtual assistant", "va"])
+check("a source that names its own words keeps them",
+      with_search_words({"include_keywords": ["developer"]}, mine)["include_keywords"] == ["developer"])
+check("with no job words, a source is left as it is",
+      with_search_words({"include_keywords": []}, {}) == {"include_keywords": []})
+feeds = original["scrape_sources"]
+check("the example reads the free feeds, and carries nobody's words",
+      feeds["remote_feeds"]["enabled"] is True
+      and not any(feeds[s].get(k) for s in ("remote_feeds", "onlinejobs_ph", "jobstreet_api")
+                  for k in ("search_keywords", "include_keywords", "exclude_keywords")))
+check("the example leaves the evidence index off", original["evidence"]["enabled"] is False)
+with tempfile.TemporaryDirectory() as tmp:
+    plain = Path(tmp, "cv.txt")
+    plain.write_text("Juan\nVA", encoding="utf-8")
+    word = Path(tmp, "cv.docx")
+    word.write_bytes(b"PK")
+    check("a text resume is read as it is", resume_text(plain) == "Juan\nVA")
+    try:
+        resume_text(word)
+        check("a Word file is refused, with the way out", False)
+    except SetupError as err:
+        check("a Word file is refused, with the way out", "PDF or a .txt" in str(err))
+
 # ── providers ────────────────────────────────────────────────────────────────
 print("\nproviders\n" + "-" * 78)
 from jobsift.config import DEFAULT_MODELS  # noqa: E402
@@ -308,6 +341,17 @@ def wizard(folder, lines):
     return code, "\n".join(printed), script
 
 
+# Pasted in at the resume step, a line at a time, then END. Just over the 50
+# words below which setup asks whether it is really a resume.
+RESUME_LINES = [
+    "JUAN DELA CRUZ",
+    "Virtual assistant and customer support specialist with four years of remote work for "
+    "Australian and American small businesses, handling email, calendars and bookings.",
+    "Skills: Shopify store admin, Canva graphics, Google Workspace, Zendesk tickets, data "
+    "entry, social media scheduling, basic bookkeeping in Xero, and clear written English "
+    "and Filipino.",
+]
+
 FIRST_RUN = [
     ("text", "AI provider: deepseek, openai or claude [claude]", "openai"),
     ("secret", "OPENAI_API_KEY", "sk-bad"),
@@ -315,6 +359,10 @@ FIRST_RUN = [
     ("secret", "OPENAI_API_KEY", "sk-good-1234567890"),
     ("text", "Gmail address", "kim@example.com"),
     ("secret", "App password", "abcd efgh ijkl mnop"),
+    ("text", "Path to your resume, or paste it", RESUME_LINES[0]),
+    ("text", "", RESUME_LINES[1]),
+    ("text", "", RESUME_LINES[2]),
+    ("text", "", "END"),
     ("text", "Jobs you want, as words in the title", "Developer, virtual  assistant, developer"),
     ("text", "Work you would especially like", ""),
     ("text", "Words in a title to leave out", "senior"),
@@ -322,6 +370,7 @@ FIRST_RUN = [
     ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [0]", "55k"),
     ("text", "Drop jobs that don't state their pay? [y/N]", ""),
     ("text", "Alert when a job scores at least, out of 100 [60]", "70"),
+    ("text", "Read the free remote job feeds? (recommended) [Y/n]", ""),
     ("text", "Set up Telegram alerts? [Y/n]", ""),
     ("secret", "Bot token", "123456789:AAH-secret-token"),
     ("text", "Press Enter once it is sent", ""),
@@ -334,6 +383,7 @@ SECOND_RUN = [
     ("secret", "OPENAI_API_KEY (typing is hidden) [set, ends ...7890", ""),
     ("text", "Gmail address [kim@example.com]", ""),
     ("secret", "App password (typing is hidden) [set, ends ...mnop", ""),
+    ("text", "already holds a resume", ""),
     ("text", "Empty keeps every title [developer, virtual assistant]", ""),
     ("text", "Work you would especially like", ""),
     ("text", "leave out (e.g. senior, sales, call center) [senior]", ""),
@@ -341,6 +391,7 @@ SECOND_RUN = [
     ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [55000]", ""),
     ("text", "Drop jobs that don't state their pay? [y/N]", ""),
     ("text", "Alert when a job scores at least, out of 100 [70]", ""),
+    ("text", "Read the free remote job feeds? (recommended) [Y/n]", ""),
     ("text", "Telegram is already set up (chat 777). Set it up again? [y/N]", ""),
     ("text", "The Google Sheet is already set up. Set it up again? [y/N]", ""),
 ]
@@ -392,7 +443,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check("telegram_enabled is on", cfg["telegram_enabled"] is True)
     check("no secret was printed", not [s for s in SECRETS if s in printed],
           [s for s in SECRETS if s in printed])
-    check("it says the resume is still the example", "resume.txt is still the example" in printed)
+    check("the pasted resume is saved as typed",
+          (folder / "resume.txt").read_text(encoding="utf-8") == "\n".join(RESUME_LINES) + "\n")
+    check("setup says where jobs come from, and why onlinejobs.ph is off",
+          "ph.indeed.com" in printed and "terms forbid automated access" in printed)
+    check("no stale to-do: the resume is set, and the evidence index is off",
+          "is still the example" not in printed and "evidence.roots" not in printed)
     check("and what to run next", "python -m jobsift --suggest-senders" in printed)
 
     print("\nthe same again, pressing Enter every time\n" + "-" * 78)
