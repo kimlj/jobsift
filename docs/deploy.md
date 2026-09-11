@@ -284,7 +284,10 @@ filters dropped or why. Once the CSV looks right, drop the flag.
 
 ## 4. Run it continuously
 
-**Option A — systemd** (a Linux server or an always-on box at home): create `/etc/systemd/system/jobsift.service`:
+**Option A — systemd** (a Linux server or an always-on box at home). The one-line
+installer (`install.sh`, run as root) writes this unit and starts it for you when
+you answer yes at the end; this is what it writes, for doing it by hand or with a
+different user. Create `/etc/systemd/system/jobsift.service`:
 
 ```ini
 [Unit]

@@ -111,12 +111,29 @@ In order:
       open: empty lists, no priority words, no pay floor, and unpriced jobs kept.
       Lists are written as one-line YAML lists, and only when the answer changed, so
       a hand-commented list survives a setup run where Enter was pressed.
-- [ ] **The scrape sources still carry the author's words.** `onlinejobs_ph`,
-      `jobstreet_api` and `remote_feeds` have their own `search_keywords` and
-      `include_keywords` in the example (developer, AI, automation...). A user after
-      VA work would have to rewrite them by hand, or enabling onlinejobs.ph would
-      drop every VA job at its own title gate. Feed `include_titles` into them, or
-      have setup ask when a source is switched on.
+- [x] **The scrape sources no longer carry the author's words — 2026-09-11.** The
+      example's `search_keywords`, `include_keywords` and `exclude_keywords` are
+      empty on every source, and an empty list takes `filters.include_titles`
+      (`sources.with_search_words`, used by `collect` and by the worker's
+      onlinejobs.ph pass). A source that names its own words keeps them, so the
+      author's config is unchanged.
+- [x] **A new install now ends with jobs arriving — 2026-09-11.** Three gaps a
+      walk-through of the new-user flow found: setup never said to subscribe to job
+      alerts, and the free remote feeds were off, so a first pass found nothing; the
+      resume was only a warning at the end; and every new user got a to-do about
+      `evidence.roots`, a developer-only feature. Setup now has "Your resume" (a
+      .txt or .pdf path, or pasted text) and "Where jobs come from" (the boards to
+      subscribe to, with that Gmail, and the feeds, now on in the example). The
+      evidence index is off in the example. `pypdf` joins requirements.txt; it was
+      already imported by --check-draft without being listed.
+- [x] **One-line install — 2026-09-11.** `install.ps1` (Windows,
+      `irm ... | iex`) and `install.sh` (macOS/Linux, `curl ... | sh`) check for
+      git and Python 3.10+, clone or update `~/jobsift`, make `.venv`, install
+      requirements and start setup. Then they offer to keep it running: a
+      scheduled task on Windows, a systemd service on a Linux server run as root.
+      `jobsift.cmd` / `jobsift.sh` run it afterwards without activating anything.
+      Tested: the download, venv and install paths. **Not tested:** the systemd
+      and scheduled-task offers, since this machine already has both set up.
 - [ ] **A job page that replaces the Google Sheet as the default screen.** The sheet
       stays as an option. The page shows job cards with score, pay, the warnings
       (degree required, scored on a snippet) and the apply link, plus stage and
