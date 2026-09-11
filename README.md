@@ -126,13 +126,18 @@ sleeps and carries on when it wakes; nothing is lost, it only arrives later.
 server (often called a "VPS") is a small computer you rent in a data centre, always
 on. If you have never had one, this is the whole process, about 15 minutes:
 
-1. **Sign up at [DigitalOcean](https://www.digitalocean.com).** It asks for a card
-   or PayPal. It is recommended here because signing up is simple, it has a data
-   centre in Singapore (close to the Philippines, so it is fast), and its smallest
-   useful server is US$6 a month (price checked 11 Sep 2026). Any provider that
-   offers Ubuntu works the same way: Hetzner and Vultr are two others.
-2. **Create the server.** Click **Create**, then **Droplets** (DigitalOcean's name
-   for a server), and choose:
+1. **Pick a provider and sign up.** Any provider that offers Ubuntu servers works.
+   Three common ones:
+   - **[DigitalOcean](https://www.digitalocean.com) (recommended):** simple sign-up
+     with a card or PayPal, a data centre in Singapore (close to the Philippines),
+     and a 1 GB server for US$6 a month (checked 11 Sep 2026). The steps below use it.
+   - [Hetzner](https://www.hetzner.com)
+   - [Vultr](https://www.vultr.com)
+
+   These are plain links. jobsift has no referral deal with any provider and earns
+   nothing from your choice.
+2. **Create the server.** On DigitalOcean, click **Create**, then **Droplets** (its
+   name for a server), and choose:
    - Region: **Singapore**
    - Image: **Ubuntu**, the newest version marked **LTS**
    - Size: **Basic**, **Regular**, the **1 GB / US$6** plan. The US$4 plan has half
