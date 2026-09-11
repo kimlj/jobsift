@@ -21,10 +21,12 @@ from .classify import classify
 
 # Subject words that suggest a job alert. Whole words, any case. Titles are here
 # because on many boards the subject IS the title: "Python Developer at Acme".
+# "Recruiter" is deliberately not: on a real inbox (2026-09-11) it matched LinkedIn
+# post notifications - "Ann, Senior Technical Recruiter posted: Happy Friday!" -
+# and put updates-noreply@linkedin.com forward as a job board.
 JOB_WORDS = re.compile(
     r"\b(jobs?|hiring|vacanc(?:y|ies)|openings?|positions?|roles?|careers?|"
-    r"opportunit(?:y|ies)|recruit(?:er|ers|ing|ment)?|developers?|engineers?|"
-    r"programmers?)\b",
+    r"opportunit(?:y|ies)|developers?|engineers?|programmers?)\b",
     re.I,
 )
 
@@ -137,6 +139,11 @@ def suggest(headers: list[dict], known_senders: dict, keywords: list,
             "job": sum(e["job"] for _, e in chosen),
             "caught": sum(e["caught"] for _, e in chosen),
             "samples": [s for _, e in chosen for s in e["samples"]][:2],
+            # One line each when the domain is split, so the addresses can be
+            # judged apart: a real inbox put LinkedIn's job alerts and its post
+            # notifications in one suggestion, where only one of them belonged.
+            "addresses": sorted(((a, e["job"], e["total"], (e["samples"] or [""])[0])
+                                 for a, e in chosen), key=lambda row: (-row[1], row[0])),
         })
 
     add.sort(key=lambda s: (-s["job"], s["base"]))
@@ -159,11 +166,16 @@ def render(report: dict, days: int) -> str:
         lines += ["", f"These look like job alerts, but config.yaml does not know them ({len(add)}):"]
         for s in add:
             lines.append(f"  {s['base']:<30} {s['job']} of {s['total']} email(s) look like job alerts")
-            for sample in s["samples"]:
-                lines.append(f'      "{_short(sample)}"')
-            if not s["whole"]:
-                lines.append("      only from " + ", ".join(s["keys"])
-                             + f"; the rest of {s['base']} sends other mail")
+            if s["whole"]:
+                for sample in s["samples"]:
+                    lines.append(f'      "{_short(sample)}"')
+            else:
+                for address, job, total, sample in s["addresses"]:
+                    lines.append(f"      {address:<36} {job} of {total}")
+                    if sample:
+                        lines.append(f'          "{_short(sample, 62)}"')
+                lines.append(f"      The rest of {s['base']} sends other mail, so judge "
+                             "these one address at a time.")
             if s["caught"]:
                 lines.append(f"      {s['caught']} already get through on a subject keyword, "
                              "but only when the subject happens to match")

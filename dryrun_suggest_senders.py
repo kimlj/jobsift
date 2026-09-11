@@ -51,6 +51,10 @@ INBOX = [
     mail("updates-noreply@linkedin.com", "Maria commented on your post"),
     mail("updates-noreply@linkedin.com", "You appeared in 9 searches this week"),
     mail("updates-noreply@linkedin.com", "Congratulate Ana on 3 years at Initech"),
+    # a recruiter's post is a post, not an alert: "Recruiter" once made this
+    # address a suggested job board on a real inbox
+    mail("updates-noreply@linkedin.com", "Ann Preolco - Senior Technical Recruiter posted: Happy Friday!"),
+    mail("updates-noreply@linkedin.com", "Ann Preolco - Senior Technical Recruiter posted: New week"),
     # a PH board on a two-part suffix
     mail("noreply@alerts.jobsdb.com.ph", "Jobs for you: web developer"),
     mail("noreply@alerts.jobsdb.com.ph", "Web Developer vacancies in Makati"),
@@ -106,6 +110,11 @@ check("the user's own address is not counted", report["messages"] == len(INBOX) 
       report["messages"])
 check("github, glassdoor and the newsletter are not boards",
       not {"github.com", "glassdoor.com", "techweekly.io"} & set(found), sorted(found))
+check("a recruiter's post does not make a job board",
+      "updates-noreply@linkedin.com" not in keys, keys)
+check("each address of a split domain gets its own line",
+      [row[0] for row in found.get("linkedin.com", {}).get("addresses", [])]
+      == ["jobs-listings@linkedin.com"])
 check("the post let in by 'hiring' is reported",
       [s["address"] for s in report["leaky"]] == ["updates-noreply@linkedin.com"],
       [s["address"] for s in report["leaky"]])
