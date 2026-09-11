@@ -101,6 +101,11 @@ INTERESTING_PY = (
 )
 MANIFESTS = {"package.json", "requirements.txt", "pyproject.toml"}
 
+# A saved count is reused while its repo sits on the same commit. Bump this when
+# WHAT gets counted changes (a new language, dependency, pattern), or every repo
+# that has not moved would keep reporting by the old rules.
+COUNT_VERSION = 1
+
 _GITHUB_URL = re.compile(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", re.I)
 
 
@@ -417,7 +422,7 @@ def discover(roots: list[str], owner: str = "", skip=(),
 def github_repos(owner: str) -> dict[str, dict]:
     """The owner's repos as GitHub lists them, keyed by name. {} without `gh`."""
     out = _run(["gh", "repo", "list", owner, "--limit", "300", "--json",
-                "name,isFork,isPrivate,homepageUrl"])
+                "name,isFork,isPrivate,homepageUrl,pushedAt"])
     try:
         return {r["name"]: r for r in json.loads(out or "[]")}
     except (ValueError, TypeError, KeyError):
@@ -591,7 +596,8 @@ def merged_prs(owner: str, previous: list[dict] | None = None,
     return sorted(prs, key=lambda p: (p["repo"], p["merged"]))
 
 
-def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) -> dict:
+def index_all(settings: dict, fetch: bool = True, previous: dict | None = None,
+              reuse: bool = True) -> dict:
     """The whole counted half of the index, as one payload.
 
     `settings` is config.yaml's `evidence:` block. `roots` are searched; `repos`
@@ -599,6 +605,11 @@ def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) 
     only on GitHub are mirrored and merged upstream PRs are read. Without it the
     network is never touched: mirrors already on disk are still counted, and what
     only GitHub knows (forks, visibility, PRs) is carried over from `previous`.
+
+    With `reuse`, a repo still on the commit `previous` counted it at is not
+    counted again, and a mirror GitHub reports no push for is not pulled. That is
+    what makes the first refresh after a night asleep cost seconds: it touches
+    only what moved.
     """
     owner = str(settings.get("github_user") or "")
     authors = tuple(str(a) for a in settings.get("authors") or ())
@@ -619,23 +630,40 @@ def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) 
     forks = ({n for n, m in by_lower.items() if m.get("isFork")} if github
              else {str(f).lower() for f in previous.get("github_forks") or ()})
 
+    previous_repos = previous.get("repos") or {}
+    reusable = (reuse and previous.get("count_version") == COUNT_VERSION
+                and list(previous.get("authors") or []) == list(authors))
     if online:
         for name, meta in github.items():
             key = name.lower()
-            if not meta.get("isFork") and key not in found and key not in skipped:
-                mirror(owner, name, mirror_dir)
+            if meta.get("isFork") or key in found or key in skipped:
+                continue
+            # Pulled only when GitHub says something was pushed since the last look,
+            # so a new day's refresh does not fetch a dozen repos that never moved.
+            known = ((previous_repos.get(name) or {}).get("github") or {}).get("pushed_at")
+            if (reusable and known and known == meta.get("pushedAt")
+                    and (mirror_dir / name / ".git").is_dir()):
+                continue
+            mirror(owner, name, mirror_dir)
     if mirror_dir.is_dir():
         for child in sorted(mirror_dir.iterdir()):
             if (child / ".git").is_dir() and child.name.lower() not in found:
                 _consider(found, child, owner, skipped, merges)
 
-    previous_repos = previous.get("repos") or {}
     repos: dict[str, dict] = {}
     not_counted: dict[str, str] = {}
     for key, entry in sorted(found.items()):
         if key in forks:
             continue
-        facts = scan_repo(entry["path"], authors)
+        head = _git(entry["path"], "rev-parse", "HEAD")
+        cached = previous_repos.get(entry["name"]) or {}
+        if (reusable and head and cached.get("head") == head
+                and cached.get("path") == str(entry["path"])):
+            # Same commit, same place, same rules: the count cannot have changed,
+            # so it is not taken again.
+            facts = dict(cached)
+        else:
+            facts = scan_repo(entry["path"], authors)
         if not facts:
             continue
         name = entry["name"]
@@ -643,6 +671,8 @@ def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) 
             not_counted[name] = reason
             continue
         facts["name"] = name
+        if head:
+            facts["head"] = head
         if entry["path"].name != name:
             facts["folder"] = entry["path"].name
         if entry["path"].parent.resolve() == mirror_dir.resolve():
@@ -653,6 +683,8 @@ def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) 
             facts["github"] = {"visibility": "private" if meta.get("isPrivate") else "public"}
             if meta.get("homepageUrl"):
                 facts["github"]["homepage"] = meta["homepageUrl"]
+            if meta.get("pushedAt"):
+                facts["github"]["pushed_at"] = meta["pushedAt"]
         elif carried := (previous_repos.get(name) or {}).get("github"):
             facts["github"] = carried
         repos[name] = facts
@@ -673,6 +705,18 @@ def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) 
         payload["not_counted"] = not_counted
     if merges:
         payload["merged_clones"] = merges
+    # When GitHub was last actually read, which is not the same as when the index
+    # was last built: an offline rebuild carries the last check forward, so the
+    # once-a-day online refresh knows how old its view of GitHub really is.
+    checked = (payload["generated_at"] if payload["fetched_from_github"]
+               else previous.get("github_checked_at"))
+    if checked:
+        payload["github_checked_at"] = checked
+    # What a saved count depends on besides the commit: the counting rules, and
+    # whose commits count. Either changing makes every saved count unusable.
+    payload["count_version"] = COUNT_VERSION
+    if authors:
+        payload["authors"] = list(authors)
     if forks:
         payload["github_forks"] = sorted(forks)
     if ledger := read_ledger(str(settings.get("portfolio_html") or "")):
@@ -689,12 +733,15 @@ def index_all(settings: dict, fetch: bool = True, previous: dict | None = None) 
     return payload
 
 
-def write_evidence(settings: dict, fetch: bool = True) -> dict:
-    """Count everything and write it. Returns the payload so a caller can report on it."""
+def write_evidence(settings: dict, fetch: bool = True, reuse: bool = True) -> dict:
+    """Count what moved (everything, without `reuse`) and write it.
+
+    Returns the payload so a caller can report on it.
+    """
     import yaml
 
     destination = Path(str(settings.get("out") or "./data/evidence.yaml"))
-    payload = index_all(settings, fetch, load_evidence(str(destination)))
+    payload = index_all(settings, fetch, load_evidence(str(destination)), reuse)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
                            encoding="utf-8")
