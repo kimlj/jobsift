@@ -12,6 +12,11 @@ Working state as of 2026-09-11. **Split across two machines**
   worker loop: onlinejobs.ph only, delivered to the core over a pinned SSH key.
   It also pushes the evidence brief, career.yaml, resume and profile on change.
   Watch it with `Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
+- **The laptop also holds the backup.** Once a day the worker takes a consistent
+  copy of the core's database over the pinned key, reopens it, runs SQLite's
+  integrity check, and keeps 14 in `data/backups/`. First copy 2026-09-11:
+  526 jobs, 2,886 seen keys, 6 applied, identical to the live counts. Restore
+  steps: [docs/residential-worker.md](docs/residential-worker.md).
 
 History: the pipeline moved off the droplet on 2026-09-07 because onlinejobs.ph
 answers a datacenter IP with a Cloudflare 403, and back onto it on 2026-09-11 for
@@ -41,17 +46,22 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
 
 ## Code
 
-- [ ] **Indeed application receipts cost an extract call each.** `applied.detect`
-      recognises `indeedapply@indeed.com` receipts before classify runs, but does
-      not mark the message processed, so classify then sees an indeed.com sender
-      and sends it to the LLM extractor, which finds no jobs in it. Seen on
-      2026-09-10. Mark a message processed once it is recognised as a receipt.
+- [x] **Indeed application receipts cost an extract call each — fixed 2026-09-11.**
+      `_record_applications` now returns the receipts' uids and the pass files them
+      as processed before classify sees them. `dryrun_inbox.py` fails four checks
+      against the old pipeline.
 - [x] **Narrow the LinkedIn sender.** Key is now `jobs-noreply@linkedin.com`, so
       `messages-noreply` and `notifications-noreply` are correctly ignored.
       Note: `updates-noreply` ("Louise posted: WE'RE HIRING...") still slips through via
       the `hiring` subject keyword. Decide whether to drop `hiring` from
       `job_subject_keywords` — it is the loosest one, but it is also the fallback that
       catches boards not yet in `known_senders`.
+      **Measured 2026-09-11 with `--suggest-senders`, 30 days, 1,126 emails:** the
+      subject keywords let in 2 messages from senders that mostly send other mail,
+      so `hiring` costs about two extract calls a month. Kept. The same run found
+      LinkedIn sending job alerts from `jobalerts-noreply@linkedin.com`, which
+      `known_senders` does not have: 4 alerts in 30 days, 3 of them missed because
+      no subject keyword matched. Not added yet; waiting on the owner.
 - [x] **`--suggest-senders` — done 2026-09-11** (`jobsift/senders.py`). Reads sender
       and subject only (BODY.PEEK on a read-only INBOX), groups by base domain, and
       prints the known_senders lines to paste; it never edits the config. Suggests one
@@ -59,7 +69,12 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       never a freemail domain, and also names silent known senders and senders that
       get in only on a subject keyword. `dryrun_suggest_senders.py`. Shipped with
       `--setup` (`jobsift/onboard.py`) and a Docker image, the rest of the onboarding gap.
-- [ ] **Two-phase IMAP fetch.** `gmail.py` downloads every message in the window in full
+- [x] **Two-phase IMAP fetch — the part that mattered, done 2026-09-11.** A message
+      already processed is no longer downloaded at all, and every fetch is a
+      read-only `BODY.PEEK[]`, so nothing is marked read any more. Still open: mail
+      that is not a job alert is downloaded once, the first time it is seen, before
+      classify rejects it. The original note:
+      `gmail.py` downloads every message in the window in full
       (`RFC822`), one at a time. Fetch headers first, run `classify()`, then pull bodies
       only for job mail. Roughly a third of the window is Strava/GitHub/Google.
       `GmailReader.fetch_headers` (batched, BODY.PEEK) now exists for --suggest-senders
@@ -158,10 +173,16 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       nothing is filtered by it") holds. `dryrun_seen_skip.py` proves that offline
       with a stubbed client, asserting on requests made rather than on a log line.
 
-- [ ] **Back up `data/jobs.db`.** It now holds the only record of
-      which jobs have been seen, which emails are processed, and which
-      applications the boards have confirmed. Losing it re-alerts everything and
-      loses the applied history. Nothing backs it up today.
+- [x] **Back up `data/jobs.db` — done 2026-09-11.** The residential worker keeps a
+      checked daily copy at home, 14 deep (see the top of this file). The copy is
+      verified by reopening it, not assumed: a copy cut off in transit or not
+      SQLite is refused and never filed.
+- [x] **Telegram bot token rotated 2026-09-11.** httpx logs every request URL at
+      INFO, and a Telegram URL carries the token: 37 lines of the laptop's logs and
+      2 of the droplet's journal held it. The httpx logger is WARNING since
+      `51f1128`, the droplet logged 0 request lines after the restart, and the new
+      token is in both `.env` files. The droplet keeps the old file as
+      `.env.pre-token-20260911`.
 
 - [x] ~~VPS `config.yaml` has `first_run_lookback_days: 2`~~ — moot; the database
       moved across populated, so no backfill was triggered.
@@ -232,13 +253,16 @@ or copy cell A2 and Paste special > Data validation only onto the other tabs.
 - [x] `Closed` added by hand to all three tabs (Shortlist, Below the bar, Closed),
       confirmed 2026-09-08.
 - [ ] Two of those dropdowns picked up a stray `stage` value, from a copy that included
-      the header row. Harmless: no code path matches it, `STAGE_COLOURS` has no entry so
+      the header row: **Below the bar** and **Closed** (checked 2026-09-11; Shortlist
+      is clean). Harmless: no code path matches it, `STAGE_COLOURS` has no entry so
       it renders uncoloured, and `mark_applied` would leave such a row alone and log it.
-      It only clutters the picker. One edit each to remove.
-- [ ] The Closed tab reports 999 rows: the empty ones hold a `FALSE` in the `draft`
-      column, residue from the tick-box validation being written across the grid before
-      the row-bounding fix (see `_migrate_renames`). Harmless, because `_next_row` reads
-      `job_title`, but the tab looks full of blank checkboxes.
+      It only clutters the picker. **By hand only**: rewriting the rule through the
+      API would flatten the chips for the whole column. Click A2 on each tab, Data >
+      Data validation, delete the `stage` item, Done.
+- [x] ~~The Closed tab reports 999 rows~~ **— cleared 2026-09-11** with the service
+      stopped: rows 9-1000 held nothing but `FALSE` in the `draft` column and were
+      deleted; the grid is now 8 rows and rows 1-8 read back unchanged. `_write` grows
+      the grid when a row is next moved there.
 
 ## Dedup key (normalised 2026-09-01)
 
@@ -300,13 +324,11 @@ stay apart — then replays the whole database. No network, no LLM, nothing writ
 
 ## Open questions
 
-- [ ] `drop_when_salary_unknown` is false, so listings with no stated salary bypass the
-      floor entirely — 5 of the 15 current survivors are unpriced. Flipping it enforces
-      a hard floor but loses every listing that does not publish pay, which on Indeed
-      is a large share.
-- [ ] Cloudstaff, Emapta and Pointwest are in exclude_companies but are staff-leasing /
-      software services rather than call-centre BPO, and pay competitively for dev
-      roles. By the "fine as long as they pay well" rule they arguably belong out.
+- [x] ~~`drop_when_salary_unknown`~~ **— decided: true**, on both machines since
+      2026-09-01, and the owner confirmed it on 2026-09-11. Listings with no stated
+      salary are dropped before they are scored, which costs a large share of Indeed.
+- [x] ~~Cloudstaff, Emapta and Pointwest~~ **— removed from exclude_companies
+      2026-09-01**; min_salary_php judges them now.
 - [ ] config.example.yaml ships min_salary_php 40000; the live config is 50000. Kept
       apart so personal numbers are not the project default.
 
@@ -320,8 +342,9 @@ stay apart — then replays the whole database. No network, no LLM, nothing writ
       (`?jobkeyword=` is ignored; the form is JS-driven and there is no JSON API on
       either the classic or v2 site), so keyword filtering happens in the adapter,
       before the scoring call. On a live run: 90 listings read, 5 kept.
-- [ ] Decide whether onlinejobs.ph earns its keep. It is VA/marketing-heavy — the one
-      job scored end-to-end came back 15/100. Revisit after a week of real results.
+- [x] ~~Decide whether onlinejobs.ph earns its keep~~ **— it does.** Every job that
+      has scored 90 or more came from it, and it is the one source that reaches
+      `evidence: full` on its own page text. It is why the residential worker exists.
 - [ ] ToS note: clause 7.4 prohibits automated access without express permission.
       Enabled anyway as a deliberate personal-use decision (public pages only, 5s
       delay, no redistribution). Asking them for permission remains the clean path.
@@ -335,16 +358,13 @@ Verified against real inbox subjects — these send mail but no job listings:
 - `onlinejobs.ph` — profile-onboarding drip only; it is a profile-first marketplace where
   employers message you directly, so it will never emit parseable job alerts
 
-## NEXT SESSION — onlinejobs.ph is the focus
+## onlinejobs.ph bring-up (2026-09-01) — historical
 
-Three commits landed: evidence-aware scoring, the onlinejobs source, the sign-off.
-`config.yaml` is gitignored, so its settings are local only — `config.example.yaml`
-carries them.
-
-**Still switched off.** `scrape_sources.onlinejobs_ph.enabled: false`. Turning it
-on is the next step, and the ToS question is unanswered — the scraper is
-well-behaved (public pages, honest UA, 5s Crawl-delay, robots.txt allows all) but
-that is robots compliance, not terms compliance.
+On since 2026-09-07, and read by the residential worker since 2026-09-11. What
+follows was written before it was switched on and is kept for its measurements.
+The ToS question is still unanswered: the scraper is well-behaved (public pages,
+honest UA, 5s Crawl-delay, robots.txt allows all), but that is robots compliance,
+not terms compliance.
 
 The dry run to repeat: `.venv\Scripts\python.exe dryrun_onlinejobs.py python "full stack" --pages 1 --limit 12`
 It writes nothing. Last run: 60 listings → 40 past the title gate → 11 would save,
@@ -360,9 +380,11 @@ really $2,400 = ₱139,200).
 - ~~**European salaries parse to junk.**~~ **Fixed 2026-09-01** — separators are read
   by digit count and ~30 currencies have rates. See *Remote feeds adapter → The
   separator bug*. It also ran the other way: "$31,2k" was being read as $312k.
-- **Degree-drops are invisible.** A 82/100 Principal AI Engineer at $160-200k was
-  binned for stating a degree requirement and never surfaced. Decide whether high
-  scorers should alert with a warning instead of vanishing.
+- ~~**Degree-drops are invisible.**~~ **Resolved.** `exclude_degree_required` has
+  been false since 2026-09-01, so nothing is binned for a degree. Since 2026-09-11 the
+  Telegram alert flags a stated one, and both drafters and the tailoring skill answer
+  it once with the resume's line: BS Information Technology, 3 of 4 years completed,
+  one year remaining.
 - **Working Nomads is live and enriching** (see above). Still not live, configured
   with zero jobs ever: foundit, kalibrr, bossjob, remotive, weworkremotely,
   virtualstaff — each needs an alert created on its site pointed at GMAIL_ADDRESS.
