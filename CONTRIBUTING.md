@@ -5,16 +5,16 @@ welcome; so is a bug report that just says what you expected and what happened.
 
 ## Before you send a change
 
-There is no test suite. There are seventeen `dryrun_*.py` scripts instead, and they
+There is no test suite. There are eighteen `dryrun_*.py` scripts instead, and they
 are the closest thing to one. Each answers a single question about behaviour and
 prints what it found rather than asserting — the point is that you read the
 output and judge it, because most of the interesting failures here are "this
 scored 22 on a snippet" rather than "this raised an exception".
 
-**Eleven run with no network and no API key.** Start here, and if your change
+**Twelve run with no network and no API key.** Start here, and if your change
 touches filtering, dedup, the applied detector, the sheet, the evidence index,
-the residential worker, the inbox, setup, sender suggestions or the employer
-check, these are the ones that matter:
+the residential worker, the inbox, setup, sender suggestions, the employer
+check or rendering an application, these are the ones that matter:
 
 ```bash
 python dryrun_dedup.py       # normalised title::company dedup — does it over- or under-merge?
@@ -28,9 +28,10 @@ python dryrun_setup.py       # --setup: writes only what it was told, keeps comm
 python dryrun_suggest_senders.py  # --suggest-senders and the daily add: the right boards, never Gmail, never twice, ignore wins
 python dryrun_inbox.py       # a pass: nothing marked read, nothing downloaded twice, receipts cost nothing
 python dryrun_vet.py         # --vet: the employer check lands on every copy of a posting, and replaces the last one
+python dryrun_render.py      # --render and --publish: the fullest page that fits, every check, the right files per board
 ```
 
-Each of the eleven exits non-zero when a case misbehaves, so `pytest` runs all of
+Each of the twelve exits non-zero when a case misbehaves, so `pytest` runs all of
 them at once (`pip install -r requirements-dev.txt` first), and GitHub Actions
 runs the same on every push and pull request. A red check on your PR means one
 of these printed FAIL; the log shows which case.

@@ -212,6 +212,18 @@ In order:
       (the longest matching key wins, and an ignored sender is not let in by a
       subject keyword). known_senders is re-read every pass, so neither needs a
       restart. `learn_senders: false` turns the daily check off.
+- [x] **`--render` and `--publish` — done 2026-09-11** (`jobsift/render.py`,
+      `publish.py`). The tailoring skill's render loop was about 55% of an
+      89-request OpenCode run on 2026-09-10: a python-docx builder written from
+      scratch for each posting (~100 lines, half of them the same page setup), then
+      Word, a page measurement and an edit, three to six times. Now the model writes
+      a spec (`--render-init` starts it from a master) and one command lays it out
+      at the fixed type scale, tries nine spacings in one Word session, keeps the
+      fullest one-page fit, and runs every check that needs no model: pages and
+      fill, three-line bullets, British spelling, em dashes, career.yaml rules,
+      earlier employers' names, dead links, subject length. `--publish` does the
+      onlinejobs.ph link: a random name in the portfolio's r/, the log row, push,
+      and a check that the live file matches. `dryrun_render.py`.
 - [x] **Two-phase IMAP fetch — the part that mattered, done 2026-09-11.** A message
       already processed is no longer downloaded at all, and every fetch is a
       read-only `BODY.PEEK[]`, so nothing is marked read any more. Still open: mail

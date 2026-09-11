@@ -292,6 +292,9 @@ python -m jobsift                 # run continuously
 
 python -m jobsift --export jobs.csv      # every stored job, one row each, for Excel
 python -m jobsift --draft "Acme" --posting posting.txt   # cover letter + answers
+python -m jobsift --render-init Acme     # start one application from your master resume (a YAML spec)
+python -m jobsift --render Acme          # lay it out, fit one full page, check it: PDF, no AI call
+python -m jobsift --publish Acme         # boards that take no file: a permanent link to the resume
 ```
 
 **`--setup`** makes `config.yaml`, `.env`, `resume.txt` and `profile.yaml` from the
@@ -338,6 +341,8 @@ jobsift/            the app
   enrich.py             follow job link → clean page → LLM details
   score.py              resume scoring (skills + experience + salary)
   draft.py              cover letter + answers for one job (never sends)
+  render.py             --render: an application spec to a fitted, checked PDF
+  publish.py            --publish: a permanent link to a resume, for boards with no upload
   agents.py             drafting as roles: extract, draft, verify each claim
   evidence.py           counts your repos: commits, stack, migrations, CI
   career.py             career.yaml + the counts -> the evidence brief; rule checks

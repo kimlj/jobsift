@@ -15,3 +15,6 @@ google-auth>=2.30
 
 # Reads a resume PDF in --setup, and finished drafts in --check-draft:
 pypdf>=4.0
+
+# Writes the resume for --render (Word or LibreOffice then makes the PDF):
+python-docx>=1.1

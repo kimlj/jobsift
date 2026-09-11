@@ -86,6 +86,8 @@ class Config:
     deepseek_api_key: str = ""
     # The daily check that adds clear job boards by itself. See senders.learn.
     learn_senders: bool = True
+    # Where --render writes and what --publish pushes to. See jobsift/render.py.
+    render: dict = field(default_factory=dict)
 
     @property
     def telegram_active(self) -> bool:
@@ -174,6 +176,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         scrape_interval_seconds=int(data.get("scrape_interval_seconds") or 1200),
         google_sheet=google_sheet,
         learn_senders=bool(data.get("learn_senders", True)),
+        render=dict(data.get("render") or {}),
     )
 
     # Validate the API key for the chosen provider + Gmail creds.

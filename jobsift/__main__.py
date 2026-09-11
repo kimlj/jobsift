@@ -389,6 +389,39 @@ def main() -> None:
              "exit 1 on any violation. No model involved.",
     )
     parser.add_argument(
+        "--render-init",
+        metavar="COMPANY",
+        help="Start the spec for one application from a master resume: writes "
+             "render.specs_dir/COMPANY.yaml holding the master's content, to be tailored. "
+             "COMPANY is one token (WhiteCloak). Choose the master with --master.",
+    )
+    parser.add_argument(
+        "--master",
+        metavar="DOCX",
+        help="With --render-init: the resume .docx to start from (default: the newest of "
+             "render.masters in config.yaml).",
+    )
+    parser.add_argument(
+        "--render",
+        metavar="SPEC",
+        help="Render one application from its spec (a file, or the COMPANY given to "
+             "--render-init): the resume PDF fitted to one full page, plus the email, "
+             "message or cover letter its board needs, then every check that needs no "
+             "model. Exit 1 when something must be fixed. No model call.",
+    )
+    parser.add_argument(
+        "--render-out",
+        metavar="DIR",
+        help="With --render: write the files here instead of render.output_dir.",
+    )
+    parser.add_argument(
+        "--publish",
+        metavar="SPEC",
+        help="For boards that take no file: publish the rendered resume under "
+             "render.publish_repo at a random, permanent name, push, wait until the live "
+             "file matches, log it, and put the link into the message.",
+    )
+    parser.add_argument(
         "--sync-usage",
         action="store_true",
         help="Refresh profile.yaml's Claude Code figures from the kimlj.dev usage file "
@@ -699,6 +732,67 @@ def main() -> None:
             print("\n".join(f"  {h['rule']}: {h['problem']}. {h['why']}" for h in hits))
         if broken:
             raise SystemExit(1)
+        return
+
+    if args.render_init or args.render or args.publish:
+        import re
+
+        import yaml
+
+        from . import render as _render
+
+        settings = _render.settings_for(config.render)
+        profile_file = Path(args.profile)
+        profile = (yaml.safe_load(profile_file.read_text(encoding="utf-8")) or {}
+                   if profile_file.exists() else {})
+
+        if args.render_init:
+            company = args.render_init
+            if not re.fullmatch(r"[A-Za-z0-9]+", company):
+                raise SystemExit("COMPANY is one token, letters and digits: WhiteCloak, not White Cloak.")
+            candidates = [Path(m).expanduser() for m in ([args.master] if args.master
+                                                          else settings["masters"] or [])]
+            candidates = [m for m in candidates if m.is_file()]
+            if not candidates:
+                raise SystemExit("No master resume to start from: pass --master FILE.docx, or "
+                                 "list render.masters in config.yaml.")
+            master = max(candidates, key=lambda m: m.stat().st_mtime)
+            dest = Path(settings["specs_dir"]) / f"{company}.yaml"
+            if dest.exists():
+                raise SystemExit(f"{dest} already exists. Edit it, or delete it to start over.")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(_render.starter_spec(master, company), encoding="utf-8")
+            print(f"Started {dest}\n  from {master}\nTailor the words and set the board, then "
+                  f"run: --render {company}")
+            return
+
+        if args.render:
+            from . import career
+
+            rules = (career.load(career_path).get("rules") or []) if Path(career_path).exists() else []
+            try:
+                report = _render.render(_render.spec_path(args.render, settings), profile, settings,
+                                        rules, out_dir=args.render_out, offline=args.offline)
+            except (_render.SpecError, _render.RenderError) as exc:
+                raise SystemExit(str(exc))
+            print(_render.report_text(report))
+            if report["fail"]:
+                raise SystemExit(1)
+            return
+
+        from .publish import PublishError, publish
+
+        try:
+            done = publish(_render.spec_path(args.publish, settings), profile, settings)
+        except (_render.SpecError, PublishError) as exc:
+            raise SystemExit(str(exc))
+        print(f"Published {done['url']}\n  logged: {done['row']}")
+        for path in done["filled"]:
+            print(f"  link written into {path}")
+        if not done["verified"]:
+            raise SystemExit("The live file did not match the local PDF within 5 minutes. Do not "
+                             "send the link until it does; open it and compare.")
+        print("The live file matches the local PDF.")
         return
 
     if args.sync_usage:

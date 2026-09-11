@@ -556,6 +556,25 @@ google_sheet:
   # out of git — it's a secret.
   service_account_file: ./service-account.json
 
+# ── Rendering applications (optional) ──
+#
+# `--render-init COMPANY` starts a spec from your master resume; you, or the
+# job-application-tailoring skill, change the words; `--render COMPANY` lays it
+# out, fits it to one full page, writes what the board needs (the email, the
+# onlinejobs.ph message, or a cover letter PDF) and runs every check that needs
+# no model. PDFs come from Microsoft Word on Windows, or LibreOffice anywhere.
+render:
+  output_dir: ./applications
+  specs_dir: ./data/applications
+  # Resume .docx files --render-init can start from; the newest is the default.
+  masters: []
+  # For boards that take no file (onlinejobs.ph): a git repo whose r/ folder is
+  # served at publish_url. --publish copies the PDF there under a random name,
+  # pushes, and waits until the live file matches before you send the link.
+  publish_repo: ""
+  publish_url: ""
+  publish_log: docs/resume-links.md
+
 # ── Repo evidence index (optional) ──
 #
 # What a draft may claim about you is limited to resume.txt and profile.yaml, by

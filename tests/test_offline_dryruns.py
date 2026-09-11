@@ -32,6 +32,7 @@ OFFLINE = [
     ("dryrun_suggest_senders.py", []),
     ("dryrun_inbox.py", []),
     ("dryrun_vet.py", []),
+    ("dryrun_render.py", []),
 ]
 
 
