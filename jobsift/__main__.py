@@ -18,6 +18,16 @@ from .store import Store
 log = logging.getLogger("jobsift")
 
 
+def _worker_paths(config, args) -> dict:
+    """Where the core keeps what a residential worker may read or replace."""
+    evidence = config.evidence or {}
+    inbox = ((config.scrape_sources or {}).get("worker_inbox") or {}).get("dir")
+    return {"database": config.database_path, "inbox": inbox or "./data/inbox",
+            "brief": evidence.get("brief") or "./data/career-brief.md",
+            "career": evidence.get("career") or "./career.yaml",
+            "resume": config.resume_path, "profile": args.profile}
+
+
 def _make_draft(config, llm, job, posting, resume, profile):
     """One draft, by whichever path config.yaml selects.
 
@@ -345,6 +355,15 @@ def main() -> None:
              "refresh the loop runs hourly and every draft runs first.",
     )
     parser.add_argument(
+        "--worker-serve",
+        nargs="?",
+        const="",
+        metavar="REQUEST",
+        help="Answer one residential-worker request and exit (docs/residential-worker.md). "
+             "Meant to be pinned to an SSH key on the core, which passes the request in "
+             "SSH_ORIGINAL_COMMAND; the argument is for trying one by hand.",
+    )
+    parser.add_argument(
         "--check-draft",
         nargs="+",
         metavar="FILE",
@@ -469,6 +488,30 @@ def main() -> None:
     log = logging.getLogger("jobsift")  # the module-level one, by name
 
     config = load_config(args.config, args.env)
+
+    # The residential worker's two ends, settled before anything below runs.
+    # --worker-serve is what a pinned SSH key executes on the core: it answers and
+    # exits without fetching a rate or opening a model client. And a worker must
+    # never write the database it no longer owns.
+    if args.worker_serve is not None:
+        import os
+
+        from .worker import serve_stdio
+
+        raise SystemExit(serve_stdio(
+            os.environ.get("SSH_ORIGINAL_COMMAND") or args.worker_serve,
+            _worker_paths(config, args)))
+    if config.worker.get("enabled"):
+        needs_db = [flag for flag, on in (
+            ("--draft", args.draft), ("--export", args.export),
+            ("--backfill-sheet", args.backfill_sheet), ("--resync-sheet", args.resync_sheet),
+            ("--check-listings", args.check_listings), ("--scan-applied", args.scan_applied),
+        ) if on]
+        if needs_db:
+            raise SystemExit(
+                f"{' '.join(needs_db)} needs the database, and this machine is a residential "
+                f"worker (worker.enabled in config.yaml). The database lives on the core, "
+                f"{config.worker.get('ssh') or 'worker.ssh'}: run it there.")
 
     # The USD rate multiplies every dollar-quoted listing, so it decides what
     # clears min_salary_php and how the sheet sorts. Fetched once here, at the
@@ -764,6 +807,15 @@ def main() -> None:
         count = to_csv(records, args.export, args.short_links)
         print(summarise(records))
         print(f"\nwrote {count} row(s) to {args.export}")
+        return
+
+    if config.worker.get("enabled"):
+        # In place of the pipeline, not beside it: two copies on two databases
+        # score and alert every job twice. See jobsift/worker.py.
+        from .worker import run as run_worker
+
+        log.info("jobsift started as a residential worker for %s", config.worker.get("ssh"))
+        run_worker(config, args.profile, once=args.once)
         return
 
     llm = build_llm(

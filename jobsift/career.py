@@ -447,6 +447,11 @@ def refresh(settings: dict, career_path: str, brief_path: str, online: bool = Tr
     from .evidence import write_evidence
 
     try:
+        if not (settings.get("roots") or settings.get("repos")):
+            # Nothing to count on this machine: a core that drafts from the brief
+            # a residential worker pushes. Rebuilding here would replace that
+            # brief with one built from no repos at all.
+            return {"action": "none", "why": []}
         state = index_state(settings, career_path, brief_path, github_every_hours)
         fetch = bool(online and state["github_due"])
         if not (state["local"] or fetch):

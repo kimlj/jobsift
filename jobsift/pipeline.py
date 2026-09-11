@@ -13,6 +13,7 @@ from .filters import is_remote
 from .utils import job_key, strip_tracking_params
 from .score import score_job
 from .sources import collect as collect_scraped
+from .sources import finish as finish_scraped
 
 logger = logging.getLogger(__name__)
 
@@ -220,5 +221,7 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
 
         logger.info("  saved: %s @ %s — %s/100", record["job_title"], record["company"], record["score"])
 
+    # Only now has every delivered worker batch been handled (worker.take_inbox).
+    finish_scraped(config)
     store.cleanup()
     return handled

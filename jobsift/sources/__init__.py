@@ -44,7 +44,12 @@ def collect(config, store=None) -> list[dict]:
         if not (settings or {}).get("enabled"):
             continue
 
-        interval = float((settings or {}).get("interval_seconds") or default_interval)
+        if name == "worker_inbox":
+            # Local and free to read, so every pass unless told otherwise. A
+            # board is neither, which is what the default interval is for.
+            interval = float((settings or {}).get("interval_seconds") or 0)
+        else:
+            interval = float((settings or {}).get("interval_seconds") or default_interval)
         if store is not None:
             waited = store.seconds_since_scrape(name)
             if waited < interval:
@@ -73,6 +78,13 @@ def collect(config, store=None) -> list[dict]:
                 from .remote_feeds import fetch_jobs
 
                 found = fetch_jobs(settings)
+            elif name == "worker_inbox":
+                # Batches a residential worker delivered (worker.py). Read here,
+                # by the process that owns the database, so it stays the only
+                # one writing it.
+                from ..worker import DEFAULT_INBOX, take_inbox
+
+                found = take_inbox(settings.get("dir") or DEFAULT_INBOX)
             else:
                 logger.warning("Unknown scrape source %r in config — skipping", name)
                 continue
@@ -87,3 +99,19 @@ def collect(config, store=None) -> list[dict]:
                 store.mark_scraped(name)
 
     return jobs
+
+
+def finish(config) -> None:
+    """Called once a pass has handled everything collect() returned.
+
+    Only the worker inbox cares: its batches are filed as done here and not when
+    they are read, so a pass that dies half way reads them again next time.
+    """
+    settings = ((getattr(config, "scrape_sources", {}) or {}).get("worker_inbox") or {})
+    if settings.get("enabled"):
+        from ..worker import DEFAULT_INBOX, finish_inbox
+
+        try:
+            finish_inbox(settings.get("dir") or DEFAULT_INBOX)
+        except OSError:
+            logger.exception("worker inbox: could not file finished batches")

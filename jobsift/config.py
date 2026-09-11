@@ -67,6 +67,9 @@ class Config:
     # Repos that back application claims. See jobsift/evidence.py.
     evidence: dict = field(default_factory=dict)
     multi_agent_drafting: bool = False
+    # Set on a machine that only scrapes onlinejobs.ph for a core elsewhere.
+    # See jobsift/worker.py.
+    worker: dict = field(default_factory=dict)
 
     @property
     def telegram_active(self) -> bool:
@@ -126,6 +129,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         models=dict(data.get("models") or {}),
         evidence=dict(data.get("evidence") or {}),
         multi_agent_drafting=bool(data.get("multi_agent_drafting", False)),
+        worker=dict(data.get("worker") or {}),
         telegram_enabled=bool(data.get("telegram_enabled", True)),
         scrape_sources=dict(data.get("scrape_sources") or {}),
         filters=dict(data.get("filters") or {}),
