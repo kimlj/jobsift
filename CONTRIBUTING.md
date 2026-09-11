@@ -22,6 +22,7 @@ python dryrun_geography.py   # the location rules, in increasing order of surpri
 python dryrun_applied.py     # confirmation emails: does it fire only on real receipts?
 python dryrun_seen_skip.py   # a job already stored — is it skipped before it costs anything?
 python dryrun_closed.py      # staging a row Closed: does the right row move, intact, once?
+python dryrun_stages.py      # the stage column: mirrored into the database, changes logged once
 python dryrun_evidence.py    # the evidence index: miscounts, wrong identities, stale sources
 python dryrun_worker.py      # the residential worker: dedup across machines, retries, the pinned key
 python dryrun_setup.py       # --setup: writes only what it was told, keeps comments, prints no secret
@@ -31,7 +32,7 @@ python dryrun_vet.py         # --vet: the employer check lands on every copy of 
 python dryrun_render.py      # --render and --publish: the fullest page that fits, every check, the right files per board
 ```
 
-Each of the twelve exits non-zero when a case misbehaves, so `pytest` runs all of
+Each of the thirteen exits non-zero when a case misbehaves, so `pytest` runs all of
 them at once (`pip install -r requirements-dev.txt` first), and GitHub Actions
 runs the same on every push and pull request. A red check on your PR means one
 of these printed FAIL; the log shows which case.

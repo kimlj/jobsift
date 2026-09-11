@@ -61,6 +61,10 @@ STAGE_ADVANCEABLE = {"", STAGE_DEFAULT, "To apply"}
 # receipt scanner, so a job already sent is not offered again.
 STAGE_SENT = {"Applied", "Interviewing", "Rejected"}
 
+# What a tick said before the column became a dropdown. Still honoured on read:
+# a sheet whose rename could not run holds these, and they mean Applied.
+_OLD_TICKS = ("TRUE", "1", "YES")
+
 # Renamed columns, old -> new. Checked BEFORE the unknown-column guard in
 # _migrate_headers, which would otherwise see the old name, decide it cannot be
 # placed, and leave the tab frozen on the previous version forever.
@@ -681,32 +685,74 @@ class SheetWriter:
         The cell holds a HYPERLINK formula, so the url is read from the
         formula rather than the rendered value, which is just the word open.
         """
-        import re
-
-        applied_col = HEADERS.index("stage")
-        url_col = HEADERS.index("url")
         out: set[str] = set()
-
         for ws in self._tabs():
-            try:
-                flags = ws.col_values(applied_col + 1)[1:]
-                formulas = ws.col_values(
-                    url_col + 1, value_render_option="FORMULA")[1:]
-            except Exception as err:
-                logger.warning("could not read stage column on %s: %s", ws.title, err)
-                continue
-
-            for flag, cell in zip(flags, formulas):
-                value = str(flag).strip()
+            for value, url in self._stage_url_pairs(ws):
                 # TRUE is still honoured: a sheet mid-migration, or one whose
                 # rename could not run, still holds the old tick.
-                if value not in STAGE_SENT and value.upper() not in ("TRUE", "1", "YES"):
-                    continue
-                match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
-                url = match.group(1) if match else str(cell).strip()
-                if url:
+                if value in STAGE_SENT or value.upper() in _OLD_TICKS:
                     out.add(url)
         return out
+
+    def stages(self) -> dict[str, tuple[str, str]]:
+        """url -> (stage, tab) for every row on the job tabs and the Closed tab.
+
+        Read-only, for Store.record_stages. The Closed tab is looked up and never
+        created: _closed_tab() makes it on first use, and a read has no business
+        adding a tab to somebody's sheet. A url on two tabs keeps the first job
+        tab's stage, which is the one still being decided on.
+
+        A pre-migration tick reads as Applied, as it does in applied_urls, and a
+        blank reads as New, which is what every row is written as.
+        """
+        import gspread
+
+        tabs = list(self._tabs())
+        closed = self.closed_ws
+        if closed is None and self.closed_title:
+            try:
+                closed = self.spreadsheet.worksheet(self.closed_title)
+            except gspread.WorksheetNotFound:
+                closed = None
+        if closed is not None:
+            tabs.append(closed)
+
+        out: dict[str, tuple[str, str]] = {}
+        for ws in tabs:
+            for value, url in self._stage_url_pairs(ws):
+                stage = "Applied" if value.upper() in _OLD_TICKS else (value or STAGE_DEFAULT)
+                out.setdefault(url, (stage, ws.title))
+        return out
+
+    def _stage_url_pairs(self, ws) -> list[tuple[str, str]]:
+        """(stage cell, url) for every row of one tab that has a url.
+
+        Matched on url because it is the only field a person will not retype.
+        The cell holds a HYPERLINK formula, so the url is read from the formula
+        rather than the rendered value, which is just the word open.
+
+        Rows run to the end of the url column, not the stage column: the API
+        trims trailing empty cells, so a tab whose last rows have a blank stage
+        hands back a shorter stage column. An unreadable tab gives nothing
+        rather than stopping the other tabs being read.
+        """
+        import re
+
+        stage_col = HEADERS.index("stage")
+        url_col = HEADERS.index("url")
+        try:
+            flags = ws.col_values(stage_col + 1)[1:]
+            formulas = ws.col_values(url_col + 1, value_render_option="FORMULA")[1:]
+        except Exception as err:
+            logger.warning("could not read stage column on %s: %s", ws.title, err)
+            return []
+        pairs: list[tuple[str, str]] = []
+        for i, cell in enumerate(formulas):
+            match = re.search(r'HYPERLINK\("([^"]+)"', str(cell))
+            url = match.group(1) if match else str(cell).strip()
+            if url:
+                pairs.append((str(flags[i]).strip() if i < len(flags) else "", url))
+        return pairs
 
     def _url_rows(self, ws) -> dict[str, int]:
         """url -> its 1-based row on this tab."""

@@ -33,6 +33,7 @@ OFFLINE = [
     ("dryrun_inbox.py", []),
     ("dryrun_vet.py", []),
     ("dryrun_render.py", []),
+    ("dryrun_stages.py", []),
 ]
 
 

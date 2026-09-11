@@ -104,8 +104,10 @@ sources. Models are set per stage in `config.yaml` (Anthropic or OpenAI,
 **SQLite, `data/jobs.db`, on one machine. It is the only record** of which mail
 was processed, which jobs were seen, and which were applied to. Tables:
 `processed_emails`, `seen_jobs` (dedup keys, including filtered-out jobs, expire
-after 30 days), `jobs` (every saved job as JSON), `applied_jobs`, `source_runs`
-(last run per scrape source). Key-format changes are migrated via
+after 30 days), `jobs` (every saved job as JSON), `applied_jobs` (applications a
+board's receipt confirmed), `sheet_stages` and `stage_changes` (the sheet's stage
+column, copied each pass, and every change to it), `source_runs` (last run per
+scrape source). Key-format changes are migrated via
 `PRAGMA user_version`.
 
 **Two copies of jobsift must never run against two databases.** They do not

@@ -470,12 +470,21 @@ def main() -> None:
              "account, no LLM call and no board scraped. Defaults to 90 days back.",
     )
     parser.add_argument(
+        "--sync-stages",
+        action="store_true",
+        help="Copy the Google Sheet's stage column into the database now, and exit. "
+             "Free - two column reads per tab, nothing written to the sheet. The "
+             "running loop already does this once a pass; this is for the first "
+             "backfill, or when you have just moved a row and want the database to "
+             "know before the next pass.",
+    )
+    parser.add_argument(
         "--skip-applied",
         action="store_true",
         help="With --export or --backfill-sheet: drop jobs whose stage in the "
              "Google Sheet says an application went in (Applied, Interviewing or "
-             "Rejected). The column is yours and the program only ever advances it "
-             "to Applied, so this is the one place the sheet is read back.",
+             "Rejected), read live from the sheet and from the database. The column "
+             "is yours; the program only ever advances it to Applied.",
     )
     parser.add_argument(
         "--backfill-sheet",
@@ -582,7 +591,7 @@ def main() -> None:
             ("--draft", args.draft), ("--export", args.export),
             ("--backfill-sheet", args.backfill_sheet), ("--resync-sheet", args.resync_sheet),
             ("--check-listings", args.check_listings), ("--scan-applied", args.scan_applied),
-            ("--vet", args.vet),
+            ("--sync-stages", args.sync_stages), ("--vet", args.vet),
         ) if on]
         if needs_db:
             raise SystemExit(
@@ -890,7 +899,9 @@ def main() -> None:
         from .sources.onlinejobs import USER_AGENT, DEFAULT_DELAY, still_listed
 
         store = Store(config.database_path)
-        skip = store.applied_urls() | store.delisted_urls()
+        # Sent by either word, a board's receipt or the sheet's stage. Receipts
+        # alone once let an application already sent be filed into Closed.
+        skip = store.sent_urls() | store.delisted_urls()
         candidates = [
             r for r in stored_rows(config.database_path, settings=config.filters)
             if r.get("source") == "onlinejobs_ph" and r.get("url") and r["url"] not in skip
@@ -947,6 +958,24 @@ def main() -> None:
         writer = SheetWriter(config.google_sheet, config.score_threshold)
         moved = writer.sweep_closed()
         print(f"moved {moved} row(s) to the {writer.closed_title!r} tab")
+        return
+
+    if args.sync_stages:
+        if not config.google_sheet.enabled:
+            raise SystemExit("google_sheet.enabled is false in config - there is no "
+                             "sheet to read.")
+        from .sheets import SheetWriter
+
+        stages = SheetWriter(config.google_sheet, config.score_threshold).stages()
+        changed = Store(config.database_path).record_stages(stages)
+        # Counted by hand: an import of Counter here would make the name local to
+        # all of main(), the trap described under --scan-applied below.
+        counts: dict[str, int] = {}
+        for stage, _tab in stages.values():
+            counts[stage] = counts.get(stage, 0) + 1
+        print(f"read {len(stages)} row(s): " + ", ".join(
+            f"{n} {stage}" for stage, n in sorted(counts.items(), key=lambda kv: -kv[1])))
+        print(f"{changed} stage change(s) recorded")
         return
 
     if args.scan_applied:
@@ -1155,6 +1184,18 @@ def main() -> None:
                 # Same rule as the drafts below: the sheet is an optional output
                 # and nothing in it may stop the inbox being read.
                 log.exception("Filing rows staged Closed failed; continuing")
+
+            # After the sweep, so a row just filed is read in its new tab. The
+            # stage column is the user's record of what was applied to; the
+            # database keeps a copy so everything that reads it alone - exports,
+            # --check-listings - gets the same answer (docs/decisions.md).
+            try:
+                if sheet is not None:
+                    changed = store.record_stages(sheet.stages())
+                    if changed:
+                        log.info("Stage column: %d change(s) copied to the database", changed)
+            except Exception:
+                log.exception("Copying the stage column failed; continuing")
 
             try:
                 _serve_sheet_drafts(args, config, llm, sheet, resume)

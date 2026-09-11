@@ -48,6 +48,19 @@ class Store:
                 evidence TEXT,
                 detected_at INTEGER
             );
+            CREATE TABLE IF NOT EXISTS sheet_stages (
+                url TEXT PRIMARY KEY,
+                stage TEXT,
+                tab TEXT,
+                first_seen INTEGER,
+                changed_at INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS stage_changes (
+                url TEXT,
+                stage TEXT,
+                tab TEXT,
+                changed_at INTEGER
+            );
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key TEXT,
@@ -186,6 +199,64 @@ class Store:
     def applied_urls(self) -> set[str]:
         """Every url a board has confirmed. Survives the sheet being off."""
         return {row[0] for row in self.conn.execute("SELECT url FROM applied_jobs")}
+
+    # -- the stage column, mirrored from the sheet --
+    def record_stages(self, stages: dict[str, tuple[str, str]]) -> int:
+        """Mirror the sheet's stage column. Returns how many rows changed stage.
+
+        The sheet stays where stages are set: they are the user's, and nothing
+        here writes one back. This copy exists because the database is what the
+        rest of the program reads on its own, and it once held the 6 applications
+        a board had confirmed while the sheet said 24.
+
+        Kept apart from applied_jobs on purpose. A receipt is a board's evidence
+        and a stage is the user's word, and "which one said so" is the only way
+        to argue with either later.
+
+        Only changes are logged to stage_changes, so the first Applied row for a
+        url is when the application was first seen - for rows already in the
+        sheet before the first sync, that is the sync, not the day it was sent.
+        A tab move with the stage unchanged (a delisted row filed into Closed)
+        updates the tab and logs nothing. A url that disappears from the sheet
+        keeps its last stage: deleting a row is not withdrawing an application.
+        """
+        now = int(time.time())
+        changed = 0
+        for url, (stage, tab) in stages.items():
+            row = self.conn.execute(
+                "SELECT stage, tab FROM sheet_stages WHERE url = ?", (url,)).fetchone()
+            if row is None:
+                self.conn.execute(
+                    "INSERT INTO sheet_stages (url, stage, tab, first_seen, changed_at) "
+                    "VALUES (?, ?, ?, ?, ?)", (url, stage, tab, now, now))
+            elif row[0] != stage:
+                self.conn.execute(
+                    "UPDATE sheet_stages SET stage = ?, tab = ?, changed_at = ? WHERE url = ?",
+                    (stage, tab, now, url))
+            else:
+                if row[1] != tab:
+                    self.conn.execute("UPDATE sheet_stages SET tab = ? WHERE url = ?", (tab, url))
+                continue
+            self.conn.execute(
+                "INSERT INTO stage_changes (url, stage, tab, changed_at) VALUES (?, ?, ?, ?)",
+                (url, stage, tab, now))
+            changed += 1
+        self.conn.commit()
+        return changed
+
+    def sent_urls(self) -> set[str]:
+        """Every url applied to, by either word: a board's receipt or the sheet's stage.
+
+        This is what "already applied" means anywhere the database is read on its
+        own. applied_urls stays receipts only, because --scan-applied feeds it to
+        mark_applied, and a stage the user set is not a receipt to advance on.
+        """
+        from .sheets import STAGE_SENT
+
+        marks = ",".join("?" * len(STAGE_SENT))
+        staged = {row[0] for row in self.conn.execute(
+            f"SELECT url FROM sheet_stages WHERE stage IN ({marks})", tuple(STAGE_SENT))}
+        return self.applied_urls() | staged
 
     # -- postings that have left their board --
     def mark_delisted(self, url: str, when: str) -> int:

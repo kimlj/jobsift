@@ -430,6 +430,26 @@ receipt can see. Writing Applied over any of them replaces something they know
 with something we inferred. This is the dropdown form of the old rule that a tick
 was never cleared: a board confirms an application and never its absence.
 
+**The stage column is mirrored into the database, beside the receipts and not
+into them.**
+- **The gap:** on 12 Sep 2026 the sheet said 24 rows were Applied while
+  `applied_jobs` held the 6 a board had confirmed. Anything reading the database
+  on its own saw a quarter of it. That included `--check-listings`, which could
+  file an application already sent into Closed as though it were still open.
+- **The mirror:** each pass now reads the stage and url columns (both job tabs,
+  plus the Closed tab, which is looked up and never created) into
+  `sheet_stages`, and logs every change to `stage_changes`.
+- **Why separate tables:** a receipt is a board's evidence and a stage is the
+  user's word, and "which one said so" is the only way to argue with either.
+- **What the dates mean:** the first Applied row in `stage_changes` is when the
+  application was first *seen*. For rows that predate the mirror, that is the
+  first sync, not the day it went in.
+- **Deleted rows:** a row deleted from the sheet keeps its last stage. Deleting a
+  row is not withdrawing an application.
+- **Reading it:** `Store.sent_urls()` is the union, and it is what
+  `--check-listings` skips. `applied_urls()` stays receipts only, because
+  `--scan-applied` advances the sheet from it, and a stage is not a receipt.
+
 **`_migrate_renames` runs before the unknown-column guard**, and has to. An
 existing sheet still says `applied`, which `_migrate_headers` cannot place, so it
 would refuse the whole tab on every run and the upgrade would never arrive for
