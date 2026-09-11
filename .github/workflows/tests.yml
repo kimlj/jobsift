@@ -1,0 +1,30 @@
+# The offline dryruns, on every push and pull request. No secrets are used or
+# available here: nothing in this job may need an API key or the network beyond
+# pip. The dryruns that do are run by hand - see CONTRIBUTING.md.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 because the README promises it; the newest so it keeps being true.
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -v

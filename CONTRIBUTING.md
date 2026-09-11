@@ -24,6 +24,11 @@ python dryrun_closed.py      # staging a row Closed: does the right row move, in
 python dryrun_evidence.py    # the evidence index: miscounts, wrong identities, stale sources
 ```
 
+Each of the six exits non-zero when a case misbehaves, so `pytest` runs all of
+them at once (`pip install -r requirements-dev.txt` first), and GitHub Actions
+runs the same on every push and pull request. A red check on your PR means one
+of these printed FAIL; the log shows which case.
+
 `dryrun_applied.py` is the one to read closely if you touch `applied.py`. Half
 its cases are mail that must NOT match — job alerts from the same senders, a
 posting whose title contains the word "Application" — because the cost of a
