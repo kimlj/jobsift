@@ -44,21 +44,33 @@ class GmailReader:
         # App passwords are shown with spaces ("abcd efgh ..."); IMAP wants them removed.
         self.app_password = app_password.replace(" ", "")
 
-    def fetch_recent(self, lookback_days: int = 2) -> list[dict]:
-        """Return recent inbox messages as dicts: uid, from, subject, date, text."""
+    def fetch_recent(self, lookback_days: int = 2, wanted=None) -> list[dict]:
+        """Recent inbox messages as dicts: uid, from, subject, date, text.
+
+        `wanted(uid)`, when given, is asked before each message is downloaded,
+        so mail the pipeline has already processed is never fetched again.
+
+        Read-only, and BODY.PEEK rather than RFC822. Fetching RFC822 from a
+        mailbox opened read-write sets \\Seen (RFC 3501), so until 2026-09-11
+        every pass marked the whole lookback window read - the user's own mail
+        included, not only job alerts.
+        """
         messages: list[dict] = []
         conn = imaplib.IMAP4_SSL(IMAP_HOST)
         try:
             conn.login(self.address, self.app_password)
-            conn.select("INBOX")
+            conn.select("INBOX", readonly=True)
             since = (datetime.utcnow() - timedelta(days=lookback_days)).strftime("%d-%b-%Y")
             typ, data = conn.uid("search", None, f"(SINCE {since})")
             if typ != "OK" or not data or not data[0]:
                 return messages
             uids = data[0].split()
             for uid in uids:
-                typ, msg_data = conn.uid("fetch", uid, "(RFC822)")
-                if typ != "OK" or not msg_data or not msg_data[0]:
+                key = uid.decode() if isinstance(uid, bytes) else str(uid)
+                if wanted is not None and not wanted(key):
+                    continue
+                typ, msg_data = conn.uid("fetch", uid, "(BODY.PEEK[])")
+                if typ != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                     continue
                 raw = msg_data[0][1]
                 msg = email.message_from_bytes(raw)
@@ -153,7 +165,7 @@ class GmailReader:
                     if key in seen:
                         continue
                     seen.add(key)
-                    typ, msg_data = conn.uid("fetch", uid, "(RFC822)")
+                    typ, msg_data = conn.uid("fetch", uid, "(BODY.PEEK[])")
                     if typ != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                         continue
                     msg = email.message_from_bytes(msg_data[0][1])

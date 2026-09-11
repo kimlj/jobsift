@@ -80,20 +80,23 @@ def _build_record(job: dict, score: dict, source: str, email_date: str) -> dict:
     }
 
 
-def _record_applications(config, store, sheet, messages) -> int:
-    """Tick jobs the boards have confirmed an application for. Returns how many
-    are newly marked.
+def _record_applications(config, store, sheet, messages) -> set[str]:
+    """Tick jobs the boards have confirmed an application for. Returns the uids
+    of the receipts, so the caller can file them without classifying them.
 
-    Runs over the messages already fetched, before classify() sees them: a
-    receipt is not a job alert, so it is dropped and marked processed, and
-    nothing would ever look at it again. Costs one regex pass and no LLM call.
+    Runs over the messages already fetched, before classify() sees them. A
+    receipt is not a job alert, but it comes from a board's own domain, so
+    classify takes it for one and pays the extract model to find no jobs in it.
+    That is what happened to every Indeed receipt until 2026-09-11, while this
+    docstring already said they were dropped. Costs one regex pass, no LLM call.
     """
     from .applied import detect, match_to_jobs
     from .export import rows as stored_rows
 
-    confirmations = [c for c in (detect(m) for m in messages) if c]
-    if not confirmations:
-        return 0
+    found = [(m["uid"], c) for m in messages if (c := detect(m))]
+    if not found:
+        return set()
+    confirmations = [c for _, c in found]
 
     records = stored_rows(config.database_path, settings=config.filters)
     matched, unmatched = match_to_jobs(confirmations, records)
@@ -109,7 +112,7 @@ def _record_applications(config, store, sheet, messages) -> int:
                 sheet.mark_applied(store.applied_urls())
             except Exception:
                 logger.exception("Could not tick applied in the sheet")
-    return len(fresh)
+    return {uid for uid, _ in found}
 
 
 def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) -> int:
@@ -118,13 +121,19 @@ def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) 
     lookback = config.first_run_lookback_days if first_run else config.lookback_days
     if first_run:
         logger.info("Fresh install — backfilling %d day(s) of inbox history", lookback)
-    messages = gmail.fetch_recent(lookback_days=lookback)
-    logger.info("Fetched %d inbox message(s) (lookback %dd)", len(messages), lookback)
-    _record_applications(config, store, sheet, messages)
+    # Only mail not yet processed is downloaded. Every pass used to pull the whole
+    # lookback window in full, 288 times a day, and then skip most of it.
+    messages = gmail.fetch_recent(
+        lookback_days=lookback, wanted=lambda uid: not store.is_email_processed(uid))
+    logger.info("Fetched %d new inbox message(s) (lookback %dd)", len(messages), lookback)
+    receipts = _record_applications(config, store, sheet, messages)
     handled = 0
 
     for msg in messages:
         if store.is_email_processed(msg["uid"]):
+            continue
+        if msg["uid"] in receipts:
+            store.mark_email_processed(msg["uid"])
             continue
 
         is_job, source = classify(
