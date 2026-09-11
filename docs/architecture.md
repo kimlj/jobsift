@@ -7,8 +7,9 @@ and `TODO.md` hold the reasoning and the measurements behind them.
 
 ## What it is
 
-A personal job-hunting pipeline, in Python, that runs unattended as one
-long-lived process. It finds job postings, throws out the ones that cannot fit,
+A personal job-hunting pipeline, in Python, that runs unattended: one
+long-lived process on a server, plus a small worker at home for the one source
+that refuses servers. It finds job postings, throws out the ones that cannot fit,
 scores the rest against the candidate's resume with an LLM, and puts them in a
 Google Sheet and a Telegram alert. It can also draft an application for one job.
 
@@ -178,18 +179,21 @@ The index is everything else the candidate has built, in a form a draft may cite
 A separate Claude Code skill on the laptop (outside this repo) uses the same
 brief to tailor a resume PDF and cover letter for one posting interactively.
 
-## Deployment today
+## Deployment today (since 11 Sep 2026)
 
-**The candidate's Windows laptop, not a server.** One process started by Task
-Scheduler through `run-jobsift.ps1`, logging to `logs/jobsift-YYYYMMDD.log`.
-Triggers: at logon, at workstation unlock, and every 15 minutes as a watchdog;
-`MultipleInstances IgnoreNew` makes the extra triggers no-ops while it runs, so
-it comes back within 15 minutes of being killed. Battery stops and time limits
-are off.
+**Split: the core on a server, a residential worker at home**
+([residential-worker.md](residential-worker.md)). The core is a systemd unit on
+a 1 GB DigitalOcean droplet that also hosts other services, capped at 220 MB. It
+owns the database and reads Gmail, the remote feeds and the worker's inbox. The
+worker is the candidate's Windows laptop, started by Task Scheduler through
+`run-jobsift.ps1` at logon, at unlock and every 15 minutes as a watchdog
+(`MultipleInstances IgnoreNew` makes the extra triggers no-ops while it runs),
+and it reads only onlinejobs.ph. Its first live pass read 978 listings, kept
+364, asked the core once, found 363 already stored, and read one detail page
+instead of 364.
 
-**Why not the VPS it used to run on** (a 1 GB DigitalOcean droplet with a
-systemd unit, now stopped; the droplet also hosts other services and stays):
-measured from that droplet, with the same code and User-Agent:
+**Why onlinejobs.ph cannot move to the server**: measured from that droplet,
+with the same code and User-Agent:
 
 | From a datacenter IP | Result |
 |---|---|
@@ -203,9 +207,10 @@ the best source. Rejected on purpose: residential proxy services (renting
 someone else's home IP is impersonation), browser impersonation, and ignoring
 robots.txt.
 
-**What the laptop costs**: when it sleeps, jobs are delayed, not lost. Alert
-mails wait in Gmail until the next pass, and onlinejobs.ph keeps postings up for
-months.
+**What the laptop still costs**: when it sleeps, onlinejobs.ph waits; mail,
+feeds, alerts and sheet drafting do not. Nothing is lost either way: a batch the
+worker could not deliver waits in its outbox, and onlinejobs.ph keeps postings
+up for months.
 
 ## Constraints any redesign must respect
 
@@ -234,7 +239,7 @@ months.
 |---|---|---|
 | Keep the laptop | Nothing (watchdog now restarts it) | Nothing lost; alerts delayed while it sleeps |
 | Always-on box at home (N100 mini PC, Pi, NAS) running **all** of jobsift | Copy `jobs.db`, install the existing systemd unit, retire the laptop task | Every source 24/7 from a residential IP, one machine, no new code |
-| VPS runs everything except onlinejobs.ph; laptop scrapes onlinejobs.ph and feeds the VPS | **Built** as the residential worker (`jobsift/worker.py`, [residential-worker.md](residential-worker.md)): a pinned SSH key, an inbox the core's loop reads, a `seen` query, pushed brief and personal files | Email and feeds 24/7; onlinejobs.ph only while the laptop is awake; one database, still one writer |
+| VPS runs everything except onlinejobs.ph; laptop scrapes onlinejobs.ph and feeds the VPS | **Deployed 11 Sep 2026** as the residential worker (`jobsift/worker.py`, [residential-worker.md](residential-worker.md)): a pinned SSH key, an inbox the core's loop reads, a `seen` query, pushed brief and personal files | Email and feeds 24/7; onlinejobs.ph only while the laptop is awake; one database, still one writer |
 
 ## Where to look
 

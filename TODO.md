@@ -1,15 +1,23 @@
 # TODO
 
-Working state as of 2026-09-08. **Running on the laptop** under a Windows Task
-Scheduler job (`jobsift`, triggered at logon) that starts `run-jobsift.ps1`, which
-runs the program's own 300s loop. Watch it with
-`Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
+Working state as of 2026-09-11. **Split across two machines**
+([docs/residential-worker.md](docs/residential-worker.md)):
 
-Moved off the VPS on 2026-09-07 for one reason: onlinejobs.ph answers a datacenter
-IP with a Cloudflare 403 and serves a home connection normally, and it is the best
-source in the pipeline. The systemd unit on the droplet is **stopped and disabled**.
-The droplet itself stays: WordWarz, MDS Pro, Casinore and SendIt all run on it, so
-"retire the droplet" was never on the table.
+- **The core runs on the droplet** as the systemd unit `jobsift` (enabled, 220M
+  cap), and owns `data/jobs.db`, moved there from the laptop on 2026-09-11. It
+  reads Gmail, the remote feeds and the worker inbox, and does scoring, the
+  sheet, Telegram and sheet drafting. Watch it with `journalctl -u jobsift -f`.
+- **The laptop is the residential worker** (`worker.enabled` in its config). The
+  same Task Scheduler job (logon, unlock, and a 15-minute watchdog) now runs the
+  worker loop: onlinejobs.ph only, delivered to the core over a pinned SSH key.
+  It also pushes the evidence brief, career.yaml, resume and profile on change.
+  Watch it with `Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
+
+History: the pipeline moved off the droplet on 2026-09-07 because onlinejobs.ph
+answers a datacenter IP with a Cloudflare 403, and back onto it on 2026-09-11 for
+everything except that one source. First live worker pass: 978 listings read, 364
+kept, 363 already on the core, so one detail page read instead of 364. The
+droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
 
 ## Waiting on external
 
@@ -33,6 +41,11 @@ The droplet itself stays: WordWarz, MDS Pro, Casinore and SendIt all run on it, 
 
 ## Code
 
+- [ ] **Indeed application receipts cost an extract call each.** `applied.detect`
+      recognises `indeedapply@indeed.com` receipts before classify runs, but does
+      not mark the message processed, so classify then sees an indeed.com sender
+      and sends it to the LLM extractor, which finds no jobs in it. Seen on
+      2026-09-10. Mark a message processed once it is recognised as a receipt.
 - [x] **Narrow the LinkedIn sender.** Key is now `jobs-noreply@linkedin.com`, so
       `messages-noreply` and `notifications-noreply` are correctly ignored.
       Note: `updates-noreply` ("Louise posted: WE'RE HIRING...") still slips through via
