@@ -291,7 +291,11 @@ class SSHTransport:
         cmd = [self.ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
                "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=30"]
         if self.key:
-            cmd += ["-i", os.path.expanduser(self.key)]
+            # Only this key. Without IdentitiesOnly, ssh also offers whatever the
+            # agent or an ssh_config block holds - an unrestricted admin key, say -
+            # and if the server accepts that one first, the pin never applies: the
+            # worker lands in a shell and every request fails as a shell command.
+            cmd += ["-i", os.path.expanduser(self.key), "-o", "IdentitiesOnly=yes"]
         cmd += [self.host, request]
         try:
             done = subprocess.run(cmd, input=data, capture_output=True, timeout=self.timeout)
