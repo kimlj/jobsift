@@ -5,15 +5,15 @@ welcome; so is a bug report that just says what you expected and what happened.
 
 ## Before you send a change
 
-There is no test suite. There are twelve `dryrun_*.py` scripts instead, and they
+There is no test suite. There are thirteen `dryrun_*.py` scripts instead, and they
 are the closest thing to one. Each answers a single question about behaviour and
 prints what it found rather than asserting — the point is that you read the
 output and judge it, because most of the interesting failures here are "this
 scored 22 on a snippet" rather than "this raised an exception".
 
-**Six run with no network and no API key.** Start here, and if your change
-touches filtering, dedup, the applied detector, the sheet or the evidence index,
-these are the ones that matter:
+**Seven run with no network and no API key.** Start here, and if your change
+touches filtering, dedup, the applied detector, the sheet, the evidence index or
+the residential worker, these are the ones that matter:
 
 ```bash
 python dryrun_dedup.py       # normalised title::company dedup — does it over- or under-merge?
@@ -22,9 +22,10 @@ python dryrun_applied.py     # confirmation emails: does it fire only on real re
 python dryrun_seen_skip.py   # a job already stored — is it skipped before it costs anything?
 python dryrun_closed.py      # staging a row Closed: does the right row move, intact, once?
 python dryrun_evidence.py    # the evidence index: miscounts, wrong identities, stale sources
+python dryrun_worker.py      # the residential worker: dedup across machines, retries, the pinned key
 ```
 
-Each of the six exits non-zero when a case misbehaves, so `pytest` runs all of
+Each of the seven exits non-zero when a case misbehaves, so `pytest` runs all of
 them at once (`pip install -r requirements-dev.txt` first), and GitHub Actions
 runs the same on every push and pull request. A red check on your PR means one
 of these printed FAIL; the log shows which case.

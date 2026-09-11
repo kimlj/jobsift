@@ -27,6 +27,7 @@ OFFLINE = [
     ("dryrun_seen_skip.py", []),
     ("dryrun_closed.py", []),
     ("dryrun_evidence.py", []),
+    ("dryrun_worker.py", []),
 ]
 
 
