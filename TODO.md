@@ -26,6 +26,25 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
 
 ## Next up (listed 2026-09-11)
 
+- [ ] **Finish the tailoring skill's v1-against-v2 comparison.** The first run is saved in
+      `~/.claude/skills/job-application-tailoring-workspace/2026-09-11-v1-vs-v2/`: the
+      same AOAI posting, fresh Claude Code agents, same model. Its README holds the
+      numbers. So far: tool calls fell from 49 to 23, requests from 19 to 15, time from
+      11.5 to 9.8 minutes, and context re-read by a third, and both documents passed the
+      same checks. Left to do, from its "Next time" list:
+      1. Read the two letters and resumes side by side and judge their quality.
+      2. Add a maps/geospatial line to `career.yaml` and rebuild the brief. Sources:
+         couchproof's Leaflet and Mapbox (`package.json`,
+         `src/components/activities/ActivityMap.tsx`, `src/components/dashboard/RouteMap.tsx`)
+         and statlay's GPS routes. v2 called maps a gap because the brief lacked them.
+         Then rerun v2 on the posting.
+      3. Measure in OpenCode + DeepSeek as well, where the original 89-request run was.
+      4. Put the final numbers into both skills' Provenance sections.
+- [ ] **First live `--publish`.** It has only run against a throwaway git repo in
+      `dryrun_render.py`. On the first real onlinejobs.ph application, watch the push to
+      `~/port`, the Vercel deploy and the wait for the hash to match, and check the row
+      it adds to `docs/resume-links.md` before sending the link.
+
 - [ ] **Set up alerts on Kalibrr and Bossjob** (owner, about 10 minutes), pointed at
       GMAIL_ADDRESS. Both are in `known_senders` and sent nothing in the 30 days
       `--suggest-senders` read, so they were never subscribed. VirtualStaff is the
