@@ -510,6 +510,13 @@ worker:
   ssh: you@core                   # user@host of the core
   ssh_key: ~/.ssh/jobsift_worker  # a key the core pins to --worker-serve
   outbox: ./data/outbox
+  # The backup. Once a day the worker takes a consistent copy of the core's
+  # database over the same pinned key, checks that it opens and passes SQLite's
+  # integrity check, and keeps backup_keep of them here. The core's disk is the
+  # only other place the database lives. Set backup_dir to "" to turn it off.
+  backup_dir: ./data/backups
+  backup_keep: 14
+  backup_every_hours: 24
 
 # Send a Telegram alert when a job's total score is at least this (out of 100)
 score_threshold: 60

@@ -11,8 +11,12 @@ which detail pages were asked for.
 
 from __future__ import annotations
 
+import base64
+import gzip
+import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import jobsift.sources.onlinejobs as oj
@@ -210,6 +214,50 @@ with tempfile.TemporaryDirectory() as tmp_name:
     check("with no repos of its own it never rebuilds over the pushed brief",
           done["action"] == "none"
           and "counted" in Path(paths2["brief"]).read_text(encoding="utf-8"), str(done))
+
+    print("── the laptop keeps a copy of the core's database ──")
+    core_db = Store(paths2["database"])
+    core_db.mark_job_seen("backup::probe")
+    core_db.save_job("backup::probe", {"job_title": "Probe", "company": "Acme",
+                                       "url": "https://e.com/job/probe"})
+    core_db.conn.close()
+    backups = tmp / "laptop4" / "backups"
+    note = worker.take_backup(local2, backups)
+    copies = sorted(backups.glob("jobs-*.db"))
+    check("the first pass keeps a copy", len(copies) == 1 and "1 jobs" in note, note)
+    if copies:
+        restored = sqlite3.connect(copies[0].resolve().as_uri() + "?mode=ro", uri=True)
+        found = restored.execute("SELECT COUNT(*) FROM seen_jobs WHERE key = 'backup::probe'").fetchone()[0]
+        restored.close()
+        check("it restores: the core's rows are in it", found == 1)
+    check("a second pass the same day takes none", worker.take_backup(local2, backups) == "")
+    for day in range(1, 5):
+        worker.take_backup(local2, backups, keep=3, now=time.time() + day * 86400)
+    check("only the newest three are kept", len(list(backups.glob("jobs-*.db"))) == 3)
+
+    class Answers:
+        """A core whose copy arrives wrong."""
+
+        def __init__(self, text):
+            self.text = text
+
+        def call(self, request, data=b""):
+            return self.text
+
+    held = sorted(backups.glob("jobs-*.db"))
+    for label, text in [
+        ("a copy cut off in transit", local2.call("backup")[:400]),
+        ("a copy that is not SQLite", base64.b64encode(gzip.compress(b"hello")).decode()),
+        ("an answer that is not a copy at all", "refused: something\n"),
+    ]:
+        try:
+            worker.take_backup(Answers(text), backups, now=time.time() + 30 * 86400)
+            check(f"{label} is refused", False)
+        except ValueError:
+            check(f"{label} is refused, and nothing is filed",
+                  sorted(backups.glob("jobs-*.db")) == held
+                  and not list(backups.glob(".*.part")))
+    check("backup takes no argument", refused("backup ../../etc/passwd"))
 
 print()
 print("all checks passed" if not FAILED else f"{FAILED} check(s) FAILED")

@@ -16,6 +16,7 @@ mode splits the program along that one line:
                  │ onlinejobs.ph: list pages, ask the core what   │
                  │ it has, detail pages for the rest, deliver.    │
                  │ Pushes the brief, career.yaml, resume, profile │
+                 │ Keeps a daily copy of the core's database      │
                  └────────────────────────────────────────────────┘
 ```
 
@@ -40,11 +41,18 @@ and sheet drafting keep going.
   deduplicated on arrival anyway.
 - **Nothing lost when the core crashes mid-pass.** A batch is filed as done only
   after the pass that read it finishes; a pass that dies re-reads it.
-- **The worker's key can do three things.** Pinned on the core to
-  `--worker-serve`, it can ask `seen`, `deliver <batch>`, or `put` one of
-  `brief`, `career`, `resume`, `profile`. Anything else, a shell included, is
-  refused. Each `put` is validated first: a broken `career.yaml` is refused and
-  the old one kept.
+- **The worker's key can do four things.** Pinned on the core to
+  `--worker-serve`, it can ask `seen`, `deliver <batch>`, `put` one of
+  `brief`, `career`, `resume`, `profile`, or take a `backup`. Anything else, a
+  shell included, is refused. Each `put` is validated first: a broken
+  `career.yaml` is refused and the old one kept.
+- **A copy of the database lives off the server.** The core's disk is the only
+  place `jobs.db` is written, and losing it re-alerts every job ever seen and
+  forgets every application a board confirmed. Once a day the worker takes a
+  consistent copy (SQLite's online backup API, so the running core is not
+  disturbed), opens it, runs SQLite's integrity check, and only then files it
+  under `data/backups/`, keeping the newest 14. A copy that arrives cut off or
+  corrupt is refused and never filed beside the good ones.
 - **The laptop stays the source of truth for your files.** It builds the
   evidence brief (it has the repos, including ones never pushed to GitHub) and
   pushes the brief, `career.yaml`, `resume.txt` and `profile.yaml` whenever they
@@ -108,6 +116,8 @@ worker:
   ssh: you@core                   # user@host of the core
   ssh_key: ~/.ssh/jobsift_worker  # the pinned key
   outbox: ./data/outbox
+  backup_dir: ./data/backups      # "" turns the daily copy off
+  backup_keep: 14
 ```
 
 Nothing else changes. `python -m jobsift`, and so the Windows scheduled task or
@@ -120,5 +130,23 @@ when `worker.enabled` is true.
   core, D delivered, Q waiting in the outbox`.
 - On the core, a delivered batch logs `worker inbox: N job(s) from M batch(es)`
   and the jobs appear in the sheet as usual, with source `onlinejobs_ph`.
+- Once a day the worker logs `worker: kept a copy of the core's database as
+  jobs-YYYYMMDD-HHMMSS.db (N jobs, N seen_jobs, N applied_jobs)`.
 - `dryrun_worker.py` exercises every guarantee above offline, with the core
   called in-process and onlinejobs.ph stubbed.
+
+## Restoring the database
+
+On the core, with the service stopped so nothing writes mid-copy:
+
+```bash
+systemctl stop jobsift
+cp data/jobs.db data/jobs.db.broken-$(date +%Y%m%d)    # keep what was there
+scp <worker>:<jobsift>/data/backups/jobs-<newest>.db data/jobs.db
+systemctl start jobsift
+```
+
+Or push it from the worker with `scp`, which is simpler when the worker is a
+laptop that cannot be reached from outside. The restored database is at most a
+day old. What it lacks is re-found rather than lost: mail still in the lookback
+window is read again, and the boards keep their listings up.

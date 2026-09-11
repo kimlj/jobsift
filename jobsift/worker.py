@@ -21,9 +21,15 @@ rule jobsift cannot break still holds: ONE database, written by ONE process.
                        only one.
 
 The transport is SSH, with a key the core pins to one command (`--worker-serve`).
-Through it the laptop can ask "which of these do you have", hand over a batch, or
-replace one of four named files - and nothing else. No shell on a machine that
-also runs other people's services, and no new port on it.
+Through it the laptop can ask "which of these do you have", hand over a batch,
+replace one of four named files, or take a copy of the database - and nothing
+else. No shell on a machine that also runs other people's services, and no new
+port on it.
+
+The copy is the backup. The database lives on the core's disk and nowhere else,
+and losing it re-alerts every job ever seen and forgets every application a
+board confirmed. The laptop is a different machine in a different place, so once
+a day it keeps a copy, checks that it restores, and keeps two weeks of them.
 
 Delivery is at-least-once. A batch that could not be sent waits in the worker's
 outbox and goes first on the next pass; one that arrives twice costs nothing,
@@ -32,6 +38,8 @@ because the core dedups every job on arrival exactly as it dedups email.
 
 from __future__ import annotations
 
+import base64
+import gzip
 import hashlib
 import json
 import logging
@@ -40,6 +48,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +62,10 @@ DEFAULT_INBOX = "./data/inbox"
 MAX_BATCH_BYTES = 20_000_000
 MAX_FILE_BYTES = 5_000_000
 DONE_KEEP_DAYS = 14
+# One copy of the core's database a day, two weeks deep: a corruption noticed a
+# week late still has good copies behind it. The database is a few MB.
+BACKUP_EVERY_HOURS = 24
+BACKUP_KEEP = 14
 
 # A batch name becomes a filename on the core, so it may not carry a path, and
 # may not start with a dot, which is how an in-progress write is named.
@@ -188,15 +201,44 @@ def put(which: str, data: bytes, paths: dict) -> str:
     return f"replaced {target.name} ({len(data)} bytes)"
 
 
+def snapshot(paths: dict) -> str:
+    """A consistent copy of the database, gzipped and base64-encoded for the text channel.
+
+    Made with SQLite's online backup API, not by reading the file: the daemon
+    may be mid-write, and a byte copy of a database being written is a file that
+    fails to open exactly when it is needed. The backup API copies pages under a
+    read lock, and the daemon carries on. Read-only on the live file, like `seen`.
+    """
+    database = Path(paths["database"])
+    if not database.is_file():
+        raise ValueError("there is no database here to back up")
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "jobs.db"
+        source = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+        target = sqlite3.connect(copy)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+        data = copy.read_bytes()
+    return base64.b64encode(gzip.compress(data)).decode("ascii") + "\n"
+
+
 def serve(command: str, data: bytes, paths: dict) -> tuple[int, str]:
     """Answer one worker request on the core: (exit code, output).
 
     `command` is what the worker asked for, which a pinned SSH key delivers in
-    SSH_ORIGINAL_COMMAND. There are exactly three, and everything else is
+    SSH_ORIGINAL_COMMAND. There are exactly four, and everything else is
     refused rather than interpreted:
       seen                 which of these listings do you have?
       deliver <name>       here is a batch of new jobs
       put <brief|career|resume|profile>   here is a newer copy of that file
+      backup               a consistent copy of the database, for the laptop to keep
+
+    `backup` lets the pinned key read the whole database. That is the point of
+    it, and no wider than before 11 Sep 2026, when the database lived on the
+    laptop itself.
     """
     parts = (command or "").split()
     op, rest = (parts[0], parts[1:]) if parts else ("", [])
@@ -207,7 +249,9 @@ def serve(command: str, data: bytes, paths: dict) -> tuple[int, str]:
             return 0, receive(rest[0], _text(data), paths) + "\n"
         if op == "put" and len(rest) == 1 and rest[0] in PUTTABLE:
             return 0, put(rest[0], data, paths) + "\n"
-    except (ValueError, OSError) as exc:
+        if op == "backup" and not rest:
+            return 0, snapshot(paths)
+    except (ValueError, OSError, sqlite3.Error) as exc:
         return 2, f"refused: {exc}\n"
     return 2, f"refused: {command!r} is not a worker request\n"
 
@@ -419,6 +463,63 @@ def push_files(transport, files: dict, state_path) -> list[str]:
     return sent
 
 
+def check_backup(data: bytes) -> dict:
+    """Prove a copy restores: it opens, passes integrity_check, and has jobsift's
+    tables. Returns the row count per table. ValueError for anything that would
+    not restore, so a bad copy is never filed beside the good ones."""
+    if not data.startswith(b"SQLite format 3\x00"):
+        raise ValueError("not a SQLite database")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "check.db"
+        path.write_bytes(data)
+        conn = sqlite3.connect(path)
+        try:
+            verdict = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if verdict != "ok":
+                raise ValueError(f"integrity_check says {verdict}")
+            tables = [row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+            counts = {t: conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] for t in tables}
+        except sqlite3.DatabaseError as exc:
+            raise ValueError(f"it does not open ({exc})") from exc
+        finally:
+            conn.close()
+    if "jobs" not in counts:
+        raise ValueError("no jobs table: not a jobsift database")
+    return counts
+
+
+def take_backup(transport, backup_dir, keep: int = BACKUP_KEEP,
+                every_hours: float = BACKUP_EVERY_HOURS, now: float | None = None) -> str:
+    """Keep a copy of the core's database, when the newest one here is older
+    than `every_hours`. Returns a line for the log, or "" when none was due.
+
+    Written under a temporary name and renamed, and only after check_backup has
+    opened it, so the newest file in the folder is always one that restores.
+    """
+    folder = Path(backup_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    now = time.time() if now is None else now
+    held = sorted(folder.glob("jobs-*.db"))
+    if held and now - held[-1].stat().st_mtime < every_hours * 3600:
+        return ""
+    answer = transport.call("backup")
+    try:
+        data = gzip.decompress(base64.b64decode(answer.strip(), validate=True))
+    except (ValueError, OSError, EOFError) as exc:
+        raise ValueError(f"the copy did not arrive whole ({exc})") from exc
+    counts = check_backup(data)
+    target = folder / f"jobs-{datetime.fromtimestamp(now):%Y%m%d-%H%M%S}.db"
+    part = folder / f".{target.name}.part"
+    part.write_bytes(data)
+    os.replace(part, target)
+    for old in sorted(folder.glob("jobs-*.db"))[:-max(1, keep)]:
+        old.unlink()
+    shown = ", ".join(f"{counts[t]} {t}" for t in ("jobs", "seen_jobs", "applied_jobs")
+                      if t in counts)
+    return f"kept a copy of the core's database as {target.name} ({shown})"
+
+
 def run(config, profile_path: str, once: bool = False) -> None:
     """The worker's loop, in place of the pipeline on a machine with worker.enabled."""
     settings = config.worker
@@ -443,6 +544,19 @@ def run(config, profile_path: str, once: bool = False) -> None:
 
                 career.refresh(evidence, files["career"], files["brief"],
                                github_every_hours=float(evidence.get("github_every_hours") or 24))
+            backups = settings.get("backup_dir", "./data/backups")
+            if backups:
+                try:
+                    note = take_backup(
+                        transport, backups,
+                        keep=int(settings.get("backup_keep") or BACKUP_KEEP),
+                        every_hours=float(settings.get("backup_every_hours") or BACKUP_EVERY_HOURS))
+                    if note:
+                        logger.info("worker: %s", note)
+                except (TransportError, ValueError, OSError) as exc:
+                    # Never the reason a pass stops: onlinejobs.ph is what the
+                    # worker is for. The next pass asks again.
+                    logger.warning("worker: backup failed (%s); the next pass tries again", exc)
             if sent := push_files(transport, files, outbox / "pushed.json"):
                 logger.info("worker: pushed %s to the core", ", ".join(sent))
             s = run_pass(olj, transport, outbox)

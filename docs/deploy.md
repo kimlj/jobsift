@@ -344,7 +344,7 @@ write, not on start.
 |---|---|
 | **Outbound HTTPS** | Anthropic or OpenAI, `imap.gmail.com:993`, Google Sheets, the boards, `api.frankfurter.app` |
 | **The clock** | Ensure `systemd-timesyncd` is running. IMAP `SINCE` searches and the crawl-delay bookkeeping are both date arithmetic |
-| **`data/` on disk you back up** | `jobs.db` holds dedup state, processed-email uids and every applied confirmation. Losing it re-alerts everything |
+| **`data/` on disk you back up** | `jobs.db` holds dedup state, processed-email uids and every applied confirmation. Losing it re-alerts everything. A [residential worker](residential-worker.md) keeps a checked daily copy of it at home, 14 deep |
 | **The whole config set** | `.env`, `config.yaml`, `resume.txt`, `profile.yaml`, `service-account.json`. Four of the five are gitignored, so `git clone` on the VPS gets you none of them |
 
 Copy the gitignored files over rather than recreating them, and `chmod 600` them:
