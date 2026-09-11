@@ -1,0 +1,65 @@
+# Copy to career.yaml and fill in. Gitignored, like profile.yaml and resume.txt.
+#
+# The hand-written half of the evidence index. `python -m jobsift --index-repos`
+# counts your repos into data/evidence.yaml, then merges that with this file into
+# data/career-brief.md: the one document the drafter, the verifier and the
+# tailoring skill read instead of researching your work again for every posting.
+#
+# THE RULE: every fact names a source, and the build checks it exists. A line
+# whose source does not resolve is left out of the brief rather than trusted.
+# Source forms:
+#   https://...               a public page an employer can open
+#   owner:2026-09-10          you said so, on that date - for what no file records
+#   <repo>/<path>             a file in a counted repo, by GitHub or folder name
+#   <repo>/<path>@<branch>    the same, on a branch that is not checked out
+#   resume.txt, ~/some/path   any file or folder on disk
+# A #fragment is ignored: `profile.yaml#automation_platforms` checks the file.
+
+projects:
+  - id: shop
+    # The name an employer reads. Repo names are internal and often differ.
+    name: Acme Shop
+    kind: production          # production | shipped | in_development | demonstrator | hobby | coursework
+    role: "Sole developer, contract, Jan 2026 - present"
+    repos: [acme-shop]        # GitHub names; their counted facts are pulled in
+    urls: [https://acme.example.com]
+    facts:
+      - text: "Checkout used by 40 stores every day."
+        source: https://acme.example.com/customers
+      - text: "Closed a hole that let one store read another's orders."
+        source: acme-shop/supabase/migrations/012_store_isolation.sql
+    # Limits a draft must respect: a figure that needs context, a name never to
+    # use, a scale that is simulated. Sourced like facts.
+    cautions:
+      - text: "The 40 stores are one company's branches, not 40 customers."
+        source: owner:2026-01-15
+    # Write-ups of real incidents, for interview stories. Never invent one.
+    stories:
+      - acme-shop/docs/incident-2026-03.md
+
+# Things a quick search gets wrong in either direction: evidence that lives
+# somewhere a grep will not look, and absences worth recording once so nobody
+# searches for them again. `absent` needs no source; `shown` and `partial` do.
+capabilities:
+  - name: Playwright
+    status: shown             # shown | partial | todo | absent
+    where: "Own end-to-end suite in acme-shop, run in CI."
+    source: acme-shop/e2e/checkout.spec.ts
+  - name: Laravel
+    status: absent
+    checked: 2026-01-15
+    bridge: "Express and FastAPI: the same routing, middleware and migrations."
+  - name: JIRA
+    status: absent            # no bridge given: the brief says to state it plainly
+
+# Checked in code against every finished draft, per document. Plain word tests:
+#   forbid: [a, b]                 the draft must not contain any of these
+#   when: [a, b] + require: [c, d] containing any `when` term requires a `require` term
+rules:
+  - id: stores-are-branches
+    when: ["40 stores"]
+    require: ["branches"]
+    why: "40 stores alone reads as 40 customers."
+  - id: public-name-only
+    forbid: ["acme-shop"]
+    why: "The repo name is internal; employers know it as Acme Shop."
