@@ -47,6 +47,68 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       one pass with a 14-day lookback would read them. Anything older is past
       `max_age_days` anyway.
 
+## Option A: jobsift for other PH developers (planned 2026-09-11)
+
+The goal: Filipino developers run their own copy. Each person's jobsift runs on their
+own laptop or server, reads their own inbox, and they pay their own AI bill. It works
+for them nearly as it is today, because it was built for a PH developer.
+
+**Not a hosted service yet (option B).** Running it for other people means reading
+their Gmail, which Google treats as a restricted permission: a public app needs
+Google's review and a yearly independent security audit, and asking users for app
+passwords instead means holding keys to their whole inbox. If B is ever built, build
+it on per-user forwarding addresses (they forward only job alerts), not on Gmail
+access. Also needed for B: accounts, per-user data kept apart, a privacy policy, a
+server of its own (the droplet is shared), and paying for or passing on AI costs.
+
+In order:
+
+- [ ] **Choice of AI provider in `--setup`: DeepSeek, OpenAI, Claude**, in that
+      order. DeepSeek goes through the OpenAI SDK with
+      `base_url="https://api.deepseek.com"` and a `DEEPSEEK_API_KEY`. From its docs
+      on 2026-09-11: `deepseek-flash` is the chat model (1M context, JSON output;
+      $0.15 in / $0.60 out per 1M tokens off-peak, double at peak).
+      `deepseek-v4-pro` is routed to V4.1 Flash from 2026-09-14. JSON mode
+      (`response_format={"type": "json_object"}`) needs the word "json" in the
+      prompt, and the docs warn it "may occasionally return empty content", so treat
+      an empty reply as a retry. Setup checks the key with a free models-list call,
+      the same way it checks Claude and OpenAI keys.
+- [ ] **Cheaper default models: a cheap one to read, a better one to judge.** The
+      example config uses `claude-opus-4-8` ($5 / $25 per 1M) for all three
+      stages. Claude defaults become `claude-haiku-4-5` ($1 / $5) for
+      extract/enrich and `claude-sonnet-5` ($2 / $10) for score. OpenAI's current
+      ids need checking first: the docs moved to
+      developers.openai.com/api/docs/models, and newer reasoning models may reject
+      the `temperature=0` and `max_tokens` that `llm.py` sends today. Existing
+      configs keep the models they name.
+- [ ] **Presets in `--setup`, as a "Your search" step:** skip junior roles, skip
+      senior roles, skip assistant/admin work, skip call-centre companies, the
+      minimum monthly pay (PHP), and the alert threshold. The title and company
+      lists become on/off switches whose word lists live in `filters.py`, unioned
+      with whatever the user lists themselves, so a config that already spells the
+      lists out behaves exactly as before. Switches rather than list edits because
+      the lists span many commented lines, and setup edits config.yaml one scalar
+      at a time to keep every comment.
+- [ ] **A job page that replaces the Google Sheet as the default screen.** The sheet
+      stays as an option. The page shows job cards with score, pay, the warnings
+      (degree required, scored on a snippet) and the apply link, plus stage and
+      "draft this" buttons and the employer-vetting verdict. It is served by the
+      user's own jobsift, local-only by default. For new users it removes the
+      hardest setup step, the Google Cloud service account. Kim's own copy could
+      serve it from the droplet at a private subdomain (for example
+      `jobs.kimlj.dev`) behind a login, since it holds the resume, applications and
+      drafts.
+- [ ] **`phjobalerts.kimlj.dev` as the project's front door:** a static page on
+      Vercel (what it is, screenshots, the setup guide). Settle the public name
+      first (jobsift, or PH Job Alerts) before any domain or link points at it.
+- [ ] **Before sharing it:** onlinejobs.ph stays off by default, with its Terms of
+      Service (clause 7.4 prohibits automated access) stated in setup and the docs;
+      respect remotive's notice against republishing; a README section written for
+      PH developers.
+- Later, not now: a `home:` setting for people outside the Philippines. Salaries
+  are monthly PHP throughout, the timezone check is fixed at `PH_UTC_OFFSET = 8`,
+  and `FOREIGN_TERMS` would drop a US user's own country.
+
 ## Waiting on external
 
 - [x] **Working Nomads — confirmed end to end 2026-08-29.** Subscribed 2026-08-28
