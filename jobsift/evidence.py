@@ -726,21 +726,24 @@ def stale_repos(evidence: dict) -> list[str]:
 
     The check the tailoring skill runs instead of deciding for itself whether to go
     researching: one git call per repo, no model, and a yes-or-no answer.
+
+    Commit times are compared as Unix seconds (%ct), never parsed from text. The
+    ISO form (%cI) failed on CI's first run under Python 3.10 and nowhere else:
+    git 2.40 here writes a UTC commit as "+00:00", the runner's git 2.55 wrote
+    something 3.10's fromisoformat rejects (by elimination, "Z", which 3.11+
+    accepts), and the error was swallowed, so a stale index read as current.
     """
     try:
-        built = datetime.fromisoformat(str(evidence.get("generated_at"))).astimezone()
+        built = datetime.fromisoformat(str(evidence.get("generated_at"))).timestamp()
     except ValueError:
         return ["(the index has never been built)"]
     out = []
     for name, facts in (evidence.get("repos") or {}).items():
         if not facts.get("path"):
             continue
-        stamp = _git(Path(facts["path"]), "log", "-1", "--format=%cI")
-        try:
-            if stamp and datetime.fromisoformat(stamp) > built:
-                out.append(name)
-        except ValueError:
-            continue
+        stamp = _git(Path(facts["path"]), "log", "-1", "--format=%ct")
+        if stamp.isdigit() and int(stamp) > built:
+            out.append(name)
     return out
 
 
