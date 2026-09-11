@@ -419,13 +419,22 @@ Register it to start at logon:
 $script = "$PWD\run-jobsift.ps1"
 $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
   -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$triggers = @(
+  New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+  # The watchdog: every 15 minutes, forever. A no-op while jobsift runs.
+  New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 15)
+)
+$unlock = New-CimInstance -ClientOnly -CimClass (Get-CimClass `
+  -Namespace ROOT\Microsoft\Windows\TaskScheduler -ClassName MSFT_TaskSessionStateChangeTrigger)
+$unlock.StateChange = 8                                  # workstation unlock
+$unlock.UserId      = "$env:USERDOMAIN\$env:USERNAME"
+$triggers += $unlock
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
   -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -RestartInterval (New-TimeSpan -Minutes 5) -RestartCount 999 -StartWhenAvailable
 $settings.DisallowStartIfOnBatteries = $false
 $settings.StopIfGoingOnBatteries     = $false
-Register-ScheduledTask -TaskName jobsift -Action $action -Trigger $trigger -Settings $settings
+Register-ScheduledTask -TaskName jobsift -Action $action -Trigger $triggers -Settings $settings
 ```
 
 Four of those settings are load-bearing, and the Task Scheduler defaults get all
@@ -439,8 +448,17 @@ four wrong for this program:
 - **`ExecutionTimeLimit` zero** — it is a daemon, not a job. The default kills it
   after three days.
 
-The process survives sleep and resume, so no wake trigger is needed. Watch it with
-`Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
+**The two extra triggers are the restart, and `-RestartCount` is not.** The
+process survives sleep and resume; it does not survive being killed. On
+10 Sep 2026 it was terminated from outside while waiting between two passes, the
+laptop awake (exit `0xC000013A`), and stayed down for twelve hours: `-RestartCount` only covers a task
+that fails to *launch*, and a logon trigger never fires on a laptop that sleeps
+instead of signing out. The 15-minute trigger brings it back within a quarter
+hour of any exit, the unlock trigger the moment you open the laptop, and
+`IgnoreNew` makes both of them no-ops while it is running. Missed firings during
+sleep run on waking, because of `-StartWhenAvailable`.
+
+Watch it with `Get-Content logs\jobsift-*.log -Tail 40 -Wait`.
 
 **Why the launcher redirects through `cmd.exe`.** Python's `logging` writes to
 stderr. Windows PowerShell 5.1 wraps every stderr line from a native command in a
