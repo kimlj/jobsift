@@ -112,6 +112,11 @@ HEADERS = [
     # posting text called itself, and on onlinejobs.ph rows it is the only one
     # of the two that ever says anything.
     "employer_name",
+    # The employer check's answer - SAFE, CAUTION or AVOID, who the research
+    # found the employer to be, and why - written by `--vet` and nothing else.
+    # Beside the two employer columns because it is the third thing known about
+    # the employer, and read in the same glance.
+    "vetting",
     "location", "remote",
     "timestamp", "job_type", "experience_level", "duration",
     "skills_required", "description_summary", "skill_match", "experience_fit",
@@ -188,6 +193,16 @@ def _cell(header: str, record: dict) -> str:
             default_currency=currency_for(record),
         )
         return str(round(value)) if value else ""
+    if header == "vetting":
+        # One cell from three fields: the verdict to scan down the column, then
+        # who and why for the row you stop at. Capitals so an AVOID is seen from
+        # across the sheet rather than read.
+        verdict = str(record.get("vetting") or "")
+        if not verdict:
+            return ""
+        who = str(record.get("vetted_as") or "")
+        why = str(record.get("vetting_why") or "")
+        return verdict.upper() + (f" - {who}" if who else "") + (f": {why}" if why else "")
     if header == "url":
         return hyperlink(record.get("url", ""))
     return str(record.get(header, ""))
@@ -938,16 +953,39 @@ class SheetWriter:
         One batch per tab, because this is called three times per drafted row -
         queued, drafting, done - and a request each would be most of the run.
         """
-        if not statuses:
+        return self._set_column("draft_status", statuses)
+
+    def set_vetting(self, cells: dict) -> int:
+        """Write {url: text} into the vetting column. Returns cells written.
+
+        The text is `_cell("vetting", record)`, so a row written here reads the
+        same as one written by an append or a resync.
+
+        The Closed tab is written too, unlike draft_status. A delisted job is
+        exactly the kind that gets vetted after the fact - its poster turns up on
+        LinkedIn a week later - and its row has left the job tabs by then. The
+        tab is opened through `_tab`, so an older one gains the column before it
+        is written to, and only when it already exists: vetting one job is not a
+        reason for an empty Closed tab to appear.
+        """
+        tabs = self._tabs()
+        if self._existing_closed_tab() is not None:
+            self.closed_ws = self._tab(self.closed_title)
+            tabs.append(self.closed_ws)
+        return self._set_column("vetting", cells, tabs)
+
+    def _set_column(self, header: str, values: dict, tabs: list | None = None) -> int:
+        """Write {url: text} into one program-owned column, one batch per tab.
+        The job tabs unless `tabs` says otherwise."""
+        if not values:
             return 0
-        column = HEADERS.index("draft_status")
-        letter = _a1(column)
+        letter = _a1(HEADERS.index(header))
         written = 0
-        for ws in self._tabs():
+        for ws in (self._tabs() if tabs is None else tabs):
             updates = [
-                {"range": f"{letter}{row}", "values": [[statuses[url]]]}
+                {"range": f"{letter}{row}", "values": [[values[url]]]}
                 for url, row in self._url_rows(ws).items()
-                if url in statuses
+                if url in values
             ]
             if not updates:
                 continue
@@ -955,7 +993,7 @@ class SheetWriter:
                 ws.batch_update(updates, value_input_option="USER_ENTERED")
                 written += len(updates)
             except Exception as err:
-                logger.warning("could not write draft status on %s: %s", ws.title, err)
+                logger.warning("could not write %s on %s: %s", header, ws.title, err)
         return written
 
     def reconcile_draft_status(self) -> int:

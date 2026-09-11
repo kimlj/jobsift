@@ -494,6 +494,22 @@ def main() -> None:
              "model call. The running loop already does this once a pass; this is "
              "for when you have just filed a row and would rather not wait.",
     )
+    parser.add_argument(
+        "--vet",
+        metavar="JOB",
+        help="Record the employer check's verdict on one stored job, by id or url. "
+             "Needs --verdict; --why and --as are optional. Written to the database "
+             "and to the job's sheet row. Free - no model call, no board touched: the "
+             "research happens elsewhere (the employer-vetting skill) and this only "
+             "stores the answer. Running it again replaces the earlier verdict.",
+    )
+    parser.add_argument("--verdict", choices=("safe", "caution", "avoid"),
+                        help="With --vet: the verdict")
+    parser.add_argument("--why", default="",
+                        help="With --vet: the one-line reason. It becomes the sheet cell, so keep it short")
+    parser.add_argument("--as", dest="vetted_as", default="",
+                        help="With --vet: who the research found the employer to be, "
+                             "e.g. \"Mogul (usemogul.com)\" or \"Acme (probable)\"")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--env", default=".env", help="Path to .env")
     args = parser.parse_args()
@@ -532,6 +548,7 @@ def main() -> None:
             ("--draft", args.draft), ("--export", args.export),
             ("--backfill-sheet", args.backfill_sheet), ("--resync-sheet", args.resync_sheet),
             ("--check-listings", args.check_listings), ("--scan-applied", args.scan_applied),
+            ("--vet", args.vet),
         ) if on]
         if needs_db:
             raise SystemExit(
@@ -695,6 +712,37 @@ def main() -> None:
         writer = SheetWriter(config.google_sheet, config.score_threshold)
         count = writer.resync(records)
         print(f"resynced {count} row(s) from {len(records)} stored job(s)")
+        return
+
+    if args.vet:
+        from datetime import date
+
+        if not args.verdict:
+            raise SystemExit("--vet needs --verdict: safe, caution or avoid.")
+        records = Store(config.database_path).mark_vetted(
+            args.vet, args.verdict, args.why.strip(), args.vetted_as.strip(),
+            date.today().isoformat())
+        if not records:
+            raise SystemExit(f"no stored job matches {args.vet!r} - give its id or its url")
+        first = records[0]
+        print(f"{first.get('job_title')} [{first.get('source')}]: {args.verdict}"
+              + (f" - {args.vetted_as.strip()}" if args.vetted_as.strip() else "")
+              + (f" ({len(records)} rows, one posting)" if len(records) > 1 else ""))
+        # The database is the record; the sheet is a view of it. A sheet that
+        # cannot be reached leaves the verdict stored, and --resync-sheet writes
+        # it out later, so this reports and carries on rather than failing.
+        if config.google_sheet.enabled and first.get("url"):
+            try:
+                from .sheets import SheetWriter, _cell
+
+                written = SheetWriter(config.google_sheet, config.score_threshold).set_vetting(
+                    {first["url"]: _cell("vetting", first)})
+                print(f"sheet: {written} row(s) updated" if written else
+                      "sheet: no row for this job (filtered out, or never written) - "
+                      "the database has the verdict")
+            except Exception as err:
+                print(f"database updated; the sheet was not ({err}). "
+                      "--resync-sheet will catch it up.")
         return
 
     if args.check_listings:

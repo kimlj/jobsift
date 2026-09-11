@@ -335,6 +335,39 @@ Database and CSV only; it earns no sheet column.
 
 ---
 
+## Vetting an employer
+
+**The research is not jobsift's; the answer is.** Checking an employer means
+web searches, company registers, domain ages and reviews weighed against each
+other - judgement, done on request for one job at a time, which is a Claude Code
+skill (`employer-vetting`) rather than a pass of the loop. What jobsift owns is
+where the answer lives: `--vet <id> --verdict safe|caution|avoid --why ... --as ...`
+writes it onto the stored record and into the job's sheet row. Free - no model
+call and no board touched.
+
+**On the record, not in a table of its own**, the way `status` is written on a
+delisted row, so the export, the sheet and `--resync-sheet` all read it from
+where every other field already is.
+
+**An id is widened to its url.** One posting can reach us from two sources, and
+the verdict is about the employer, which both rows share. Vetting one of them
+would leave an AVOID invisible on whichever row got opened next.
+
+**`vetted_as` never touches `employer_name`.** `employer_name` is only ever what
+the posting stated, and the scorer is told to leave it blank rather than guess.
+A check can conclude a *probable* employer from clues that converge - Mogul was
+found on 2026-09-11 from its founder's LinkedIn headline and job 220's opening
+line, "About Mogul:" - and writing that into `employer_name` would turn an
+inference into the field people search as fact.
+
+**Deploy before the first `--vet`.** `--vet` opens the sheet, and opening it
+migrates the new `vetting` column in. A service still on the previous version
+then finds a column it does not know, refuses to migrate, and appends its rows
+in the old order - one column off from `vetting` onwards. Pull and restart
+first, then vet.
+
+---
+
 ## Application receipts
 
 **The receipt does not come from the board you applied through.** Two

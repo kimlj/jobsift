@@ -233,6 +233,56 @@ class Store:
                 found.add(record["url"])
         return found
 
+    # -- the employer check --
+    def mark_vetted(self, job: str, verdict: str, why: str, vetted_as: str,
+                    when: str) -> list[dict]:
+        """Record the employer check's verdict on one job. Returns the updated records.
+
+        `job` is a row id or a url. An id is widened to its url, because the
+        same posting can reach us from two sources and the verdict is about the
+        employer, which both rows share - vetting one and not the other would
+        leave an "avoid" invisible on whichever row got looked at next.
+
+        Written onto the stored record, the way mark_delisted writes `status`,
+        so the export and the sheet read it from the same place as every other
+        field. A second call replaces the first: new facts are the only reason
+        anyone vets a job twice. `vetted_as` is kept apart from `employer_name`
+        on purpose - that one is only ever what the posting itself stated, and
+        this is what research concluded, which can be a probable rather than a
+        certain answer.
+        """
+        if str(job).isdigit():
+            found = self.conn.execute("SELECT url FROM jobs WHERE id = ?", (int(job),)).fetchone()
+            if not found:
+                return []
+            # Widened only when there is a url to widen to. An empty one would
+            # match every link-less row in the table and vet them all at once.
+            if found[0]:
+                rows = self.conn.execute(
+                    "SELECT id, data FROM jobs WHERE url = ?", (found[0],)).fetchall()
+            else:
+                rows = self.conn.execute(
+                    "SELECT id, data FROM jobs WHERE id = ?", (int(job),)).fetchall()
+        else:
+            rows = self.conn.execute("SELECT id, data FROM jobs WHERE url = ?", (job,)).fetchall()
+        updated = []
+        for row_id, blob in rows:
+            try:
+                record = json.loads(blob)
+            except Exception:
+                continue
+            record["vetting"] = verdict
+            record["vetting_why"] = why
+            record["vetted_as"] = vetted_as
+            record["vetted_on"] = when
+            self.conn.execute(
+                "UPDATE jobs SET data = ? WHERE id = ?", (json.dumps(record), row_id)
+            )
+            updated.append(record)
+        if updated:
+            self.conn.commit()
+        return updated
+
     def cleanup(self, days: int = 30) -> None:
         """Forget dedup keys and processed-email uids older than `days`."""
         cutoff = int(time.time()) - days * 86400
