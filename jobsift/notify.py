@@ -83,6 +83,12 @@ def send_telegram(bot_token: str, chat_id: str, record: dict, options: dict | No
             f"not the full posting — open the link before trusting this</i>"
         )
 
+    # Flagged, not filtered. exclude_degree_required is off on purpose: a posting
+    # that says "degree required" often hires on shipped work. But the
+    # application has to answer it, so it is said before the link is opened.
+    if record.get("degree_required") == "required":
+        lines.append("🎓 <i>states a degree as required - the letter has to answer it</i>")
+
     matching = _esc(record.get("matching_skills"))
     if _has(matching):
         lines.append(f"✅ {_clip(matching, MAX_SKILLS)}")

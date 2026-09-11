@@ -111,6 +111,12 @@ candidate fits this posting, and do not pad with enthusiasm.
 - Do not invent metrics. Use a number only if the resume states it.
 - If the posting names a stack the candidate lacks, do not bluff: either omit it or
   name the nearest genuine experience.
+- If the posting states a degree as a REQUIREMENT and the profile's education shows
+  none conferred, answer it once, in one plain sentence, in the words the resume and
+  profile use for it (years completed, what remains), then let the next sentence
+  point at the shipped work that stands in for it. Never write it as a degree held,
+  never apologise, and never give a finish date the profile does not. A degree that
+  is only "preferred" or "or equivalent experience" needs no sentence at all.
 - 150-220 words. Count them. Overshooting this is the most common fault in a
   letter: the reader has the resume open beside it, so anything the resume
   already says is spending their attention to tell them something they have.

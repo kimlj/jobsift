@@ -119,6 +119,11 @@ first person, in the candidate's voice. Ground every claim in the sources. Name 
 projects and what was built with which technology. Do not pad with enthusiasm, do not
 invent metrics, and do not write a sign-off, a name or contact details - those are
 appended afterwards from the candidate's own file.
+If the requirements include a degree as REQUIRED and the sources show none conferred,
+answer it once, in one plain sentence, in the sources' own words (years completed,
+what remains), then point at the shipped work that stands in for it. Never write it
+as a degree held, and never give a finish date the sources do not. A degree that is
+only preferred, or "or equivalent experience", needs no sentence.
 
 QUESTIONS: answer only from the trusted sources. Leave blank what they do not cover
 and set needs_input true. Salary, start dates and on-site willingness are decisions,
