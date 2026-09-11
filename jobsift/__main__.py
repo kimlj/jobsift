@@ -762,8 +762,25 @@ def main() -> None:
                 raise SystemExit(f"{dest} already exists. Edit it, or delete it to start over.")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(_render.starter_spec(master, company), encoding="utf-8")
-            print(f"Started {dest}\n  from {master}\nTailor the words and set the board, then "
-                  f"run: --render {company}")
+            # Render the untouched starter once, so the first draft is written to the
+            # page it has. The _AI master runs about four lines over at the house type
+            # scale; a draft that did not know that came back seven lines over.
+            import tempfile
+
+            from . import career
+
+            rules = (career.load(career_path).get("rules") or []) if Path(career_path).exists() else []
+            try:
+                with tempfile.TemporaryDirectory(prefix="jobsift-init-") as scratch:
+                    fit = _render.render(dest, profile, settings, rules, out_dir=scratch, offline=True)
+                over = next((f.split(". ")[0] for f in fit["fail"] if f.startswith("resume:")), "")
+                budget = (f"As it stands it does NOT fit: {over.removeprefix('resume: ')}."
+                          if fit["pages"] > 1 else
+                          f"As it stands it fits one page with {fit['waste_in']}in to spare.")
+            except (_render.SpecError, _render.RenderError) as exc:
+                budget = f"(Could not render the starter to measure it: {exc})"
+            print(f"Started {dest}\n  from {master}\n{budget}\nTailor the words and set the "
+                  f"board, then run: --render {company}")
             return
 
         if args.render:
