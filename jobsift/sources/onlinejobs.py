@@ -167,12 +167,17 @@ def _parse_card(card) -> dict | None:
     }
 
 
-def fetch_jobs(settings: dict, is_seen=None) -> list[dict]:
+def fetch_jobs(settings: dict, is_seen=None, seen_batch=None) -> list[dict]:
     """Read the public job search listing. Returns extract-shaped job dicts.
 
     `is_seen(job) -> bool` lets the caller say a listing is already stored. Here
     it skips the DETAIL fetch rather than the listing itself: filtering stays the
     pipeline's job, so passing nothing reads every kept job's page as before.
+
+    `seen_batch(jobs) -> set of urls` is the same question asked once for every
+    listing, for a caller whose answer is a network round trip away: the
+    residential worker asking the core (worker.py). It may raise, and then no
+    detail page is read.
     """
     max_pages = int(settings.get("max_pages", DEFAULT_MAX_PAGES))
     delay = float(settings.get("delay_seconds", DEFAULT_DELAY))
@@ -279,8 +284,12 @@ def fetch_jobs(settings: dict, is_seen=None) -> list[dict]:
         # URL slug on both sides of the comparison, which is why it matches.
         if settings.get("fetch_details", True) and jobs:
             pending = [j for j in jobs if j.get("url")]
-            if is_seen is not None:
-                fresh = [j for j in pending if not is_seen(j)]
+            if seen_batch is not None or is_seen is not None:
+                if seen_batch is not None:
+                    known = seen_batch(pending)
+                    fresh = [j for j in pending if j["url"] not in known]
+                else:
+                    fresh = [j for j in pending if not is_seen(j)]
                 skipped = len(pending) - len(fresh)
                 if skipped:
                     logger.info(
@@ -297,6 +306,10 @@ def fetch_jobs(settings: dict, is_seen=None) -> list[dict]:
                 full, employer = _fetch_description(client, job["url"])
                 if full and len(full) > len(job.get("description") or ""):
                     job["description"] = full
+                    # The whole posting is in hand, so enrich has nothing to fetch.
+                    # Here that is what skip_link_domains already did; on a core
+                    # fed by a residential worker the same fetch would be a 403.
+                    job["full_posting"] = True
                 if employer:
                     job["employer_id"] = employer
 
