@@ -79,7 +79,8 @@ adding the wrong sender pays for a call on every email it sends.
 (The wording here used to describe the *Classify email* node of the original n8n
 workflow this replaced. The running program is the Python package.)
 
-Mapped today: `indeed.com`, `jobs-noreply@linkedin.com`, `foundit.com`,
+Mapped today: `indeed.com`, `jobs-noreply@linkedin.com`,
+`jobalerts-noreply@linkedin.com`, `foundit.com`,
 `jobstreet.com`, `kalibrr.com`, `bossjob.ph`, `remotive.com`, `weworkremotely.com`,
 `workingnomads.com`, `onlinejobs.ph`, `virtualstaff.ph`.
 

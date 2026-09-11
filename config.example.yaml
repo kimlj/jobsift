@@ -272,7 +272,10 @@ filters:
 #   domain: label      (label becomes the job's "source")
 known_senders:
   indeed.com: indeed
-  jobs-noreply@linkedin.com: linkedin   # only LinkedIn sender carrying job alerts
+  # LinkedIn's alerts come from two addresses, and the rest of linkedin.com is
+  # messages and post notifications, so the addresses are named, not the domain.
+  jobs-noreply@linkedin.com: linkedin
+  jobalerts-noreply@linkedin.com: linkedin
   foundit.com: foundit
   jobstreet.com: jobstreet
   kalibrr.com: kalibrr

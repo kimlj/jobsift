@@ -60,8 +60,9 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       subject keywords let in 2 messages from senders that mostly send other mail,
       so `hiring` costs about two extract calls a month. Kept. The same run found
       LinkedIn sending job alerts from `jobalerts-noreply@linkedin.com`, which
-      `known_senders` does not have: 4 alerts in 30 days, 3 of them missed because
-      no subject keyword matched. Not added yet; waiting on the owner.
+      `known_senders` did not have: 4 alerts in 30 days, 3 of them missed because
+      no subject keyword matched. Added 2026-09-11 on both machines and in
+      config.example.yaml.
 - [x] **`--suggest-senders` — done 2026-09-11** (`jobsift/senders.py`). Reads sender
       and subject only (BODY.PEEK on a read-only INBOX), groups by base domain, and
       prints the known_senders lines to paste; it never edits the config. Suggests one
