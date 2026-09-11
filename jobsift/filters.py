@@ -765,24 +765,11 @@ def salary_from_text(text: str, window: int = 120) -> str:
 
 
 
-# ── Presets ── the on/off switches under `filters:` in config.yaml, which
-# --setup asks about. Each adds its words to the matching list, so a config that
-# spells the words out itself (every config written before 2026-09-11) behaves
-# exactly as before, and exclude_titles / exclude_companies only need what the
-# presets do not cover. Matched as whole words, like the lists (see _matched).
-JUNIOR_TITLES = ["jr", "junior", "intern", "internship", "trainee", "apprentice",
-                 "entry level", "fresh graduate"]
-# Off in the example. For the author it is on: most of what these boards label
-# "Senior" is US-market senior, a different bar, and a role that cannot be
-# defended in the interview is a wasted fetch, scoring call and afternoon. For
-# plenty of PH developers it is exactly the job they want.
-SENIOR_TITLES = ["senior", "sr"]
-# onlinejobs.ph, jobstreet and the remote feeds all carry VA and admin work under
-# slightly different titles. "va" is not here: as a whole word it fires on a
-# company called "VA Masters" and on the US state abbreviation.
-ASSISTANT_TITLES = ["virtual assistant", "executive assistant", "admin assistant",
-                    "administrative assistant", "personal assistant", "data entry",
-                    "appointment setter", "cold caller", "telemarketer"]
+# ── The call-centre shortcut ── filters.skip_call_centres in config.yaml, off
+# unless asked for (in --setup, by typing "bpo" as a company to leave out). It
+# adds these names to exclude_companies. Everything else a person wants or does
+# not want is their own words, in include_titles, exclude_titles and
+# exclude_companies: a preference is not something this file should decide.
 # Named call-centre and outsourcing employers in the Philippines. Generic words
 # like "outsourcing" and "staffing" are deliberately absent: plenty of those pay
 # well, and min_salary_php is what judges pay. Cloudstaff, Emapta and Pointwest
@@ -803,22 +790,8 @@ CALL_CENTRE_COMPANIES = [
     # a company that puts BPO in its own name
     "bpo",
 ]
-PRESET_TERMS = {"skip_junior": JUNIOR_TITLES, "skip_senior": SENIOR_TITLES,
-                "skip_assistant_roles": ASSISTANT_TITLES,
-                "skip_call_centres": CALL_CENTRE_COMPANIES}
-
-
-def excluded_titles(settings: dict) -> list:
-    """exclude_titles, plus the words of every title preset switched on."""
-    terms = list(settings.get("exclude_titles") or [])
-    for key in ("skip_junior", "skip_senior", "skip_assistant_roles"):
-        if settings.get(key):
-            terms += PRESET_TERMS[key]
-    return terms
-
-
 def excluded_companies(settings: dict) -> list:
-    """exclude_companies, plus the call-centre list when that preset is on."""
+    """exclude_companies, plus the call-centre list when that shortcut is on."""
     terms = list(settings.get("exclude_companies") or [])
     if settings.get("skip_call_centres"):
         terms += CALL_CENTRE_COMPANIES
@@ -834,9 +807,17 @@ def check(job: dict, settings: dict) -> tuple[bool, str]:
     if blocked:
         return False, f"company matches {blocked!r}"
 
-    blocked = _matched(job.get("title"), excluded_titles(settings))
+    blocked = _matched(job.get("title"), settings.get("exclude_titles"))
     if blocked:
         return False, f"title matches {blocked!r}"
+
+    # What the person is looking for, when they have said. Title only, like the
+    # scrape sources' own include lists: a posting's skill tags are the
+    # employer's marketing, and a description mentions everything. Checked after
+    # exclude, so a word left out wins. Empty keeps every title.
+    wanted = settings.get("include_titles")
+    if wanted and not _matched(job.get("title"), wanted):
+        return False, "title matches none of include_titles"
 
     keep, why = geography_check(job, settings.get("geography") or {})
     if not keep:

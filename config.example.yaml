@@ -39,11 +39,11 @@ first_run_lookback_days: 7
 # qualified for. This is the deliberate thumb on the scale: a whole-word match
 # against title, skills or description adds priority_points to the total
 # (capped at 100) and marks the alert with a lightning bolt.
-# Note "agent" is absent on purpose - it would match "Customer Service Agent".
-priority_keywords: [ai, llm, llms, genai, generative ai, agentic, ai agent, rag,
-                    machine learning, ml, nlp, computer vision, chatbot,
-                    prompt engineering, langchain, openai, claude, automation,
-                    workflow automation, n8n, zapier]
+# Your own words; `--setup` asks. Empty here, because what one person wants is
+# not a default. The author's list, for the shape of one: ai, llm, genai, rag,
+# machine learning, chatbot, automation, n8n, zapier. Leave out a bare "agent":
+# it matches "Customer Service Agent".
+priority_keywords: []
 priority_points: 18
 
 # ── How much detail goes to Telegram ──
@@ -62,23 +62,24 @@ telegram:
 # whatever it would have scored, and they run before enrich/score so a rejected
 # job costs nothing.
 filters:
-  # ── Presets ── on/off, and what `--setup` asks. Each switch adds a word list that
-  # lives in jobsift/filters.py (PRESET_TERMS), matched as whole words against
-  # every source. The two lists below are for anything the presets do not cover.
-  skip_junior: true           # jr, junior, intern, internship, trainee, apprentice, entry level, fresh graduate
-  skip_senior: false          # senior, sr
-  skip_assistant_roles: true  # virtual/executive/admin assistant, data entry, appointment setter, cold caller, telemarketer
-  skip_call_centres: true     # ~45 call-centre, BPO and IT-outsourcing firms in PH, plus any company with "bpo" in its name
-  # More employers to skip, by name. Generic words like "outsourcing" and
-  # "staffing" are deliberately not in the preset: plenty of those pay well, and
-  # min_salary_php is what judges pay.
-  exclude_companies: []
-  # More titles to skip: role types never wanted at any pay, from any board. One
-  # list for every source, since a rule true everywhere should be written once.
-  # Titles next to the senior preset, in case they should go too: lead, staff,
-  # principal, head of, director, architect, manager. Avoid "va": as a whole
-  # word it fires on a company called "VA Masters" and on the US state.
+  # ── What you are looking for ── your own words; `--setup` asks for them. All
+  # start empty, so nothing is thrown away until you say so. Whole words, any
+  # case, and every list applies to every source.
+  #
+  # A job's title must contain one of these, or it is dropped before anything is
+  # spent on it: developer, virtual assistant, va, data analyst... Empty keeps
+  # every title your alerts and sources bring in.
+  include_titles: []
+  # Title words to leave out, whatever else matches (a word left out beats one
+  # included): senior, junior, intern, sales...
   exclude_titles: []
+  # Employers to leave out, by name. Generic words like "outsourcing" or
+  # "staffing" also catch firms that pay well; min_salary_php judges pay better.
+  exclude_companies: []
+  # A shortcut: the ~45 call-centre, BPO and IT-outsourcing firms in PH that
+  # jobsift knows (CALL_CENTRE_COMPANIES in jobsift/filters.py), plus any company
+  # with "bpo" in its name. In --setup, typing "bpo" as a company turns it on.
+  skip_call_centres: false
   # ── Geography ── four rules, applied in this order:
   #   1. the job is in the Philippines            -> keep, on-site/hybrid/remote alike
   #   2. elsewhere and remote                     -> keep only if a PH-based candidate
@@ -211,7 +212,8 @@ filters:
   max_salary_php: 500000
   # Monthly PHP floor. Ranges are judged on their LOW end — "PHP 18,000-40,000"
   # is a job that may pay 18,000. USD and hourly/weekly rates are converted.
-  min_salary_php: 40000
+  # 0 is no floor, which is where it starts; `--setup` asks.
+  min_salary_php: 0
   # Most listings state no salary at all. true drops them, false lets them
   # through to be scored on skills alone.
   #
@@ -224,7 +226,10 @@ filters:
   # this is a real cut and not a formality.
   #
   # If good jobs start going missing, this is the first switch to flip back.
-  drop_when_salary_unknown: true
+  #
+  # That was the author's choice for their own search. It is off here, so nothing
+  # is dropped for saying nothing about pay until you decide it should be.
+  drop_when_salary_unknown: false
 
 # ── Which senders count as job alerts ──
 # You subscribe to alerts on each board yourself, pointed at your GMAIL_ADDRESS.

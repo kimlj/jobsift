@@ -52,16 +52,9 @@ SHOWN = {"deepseek": "deepseek", "openai": "openai", "anthropic": "claude"}
 TYPED = {"deepseek": "deepseek", "openai": "openai", "gpt": "openai",
          "claude": "anthropic", "anthropic": "anthropic"}
 
-# The presets --setup asks about: (switch in config.yaml's filters block, question,
-# answer for a config that has neither the switch nor any of its words). The words
-# behind each switch are filters.PRESET_TERMS.
-PRESETS = [
-    ("skip_junior", "Skip junior roles, internships and trainee posts?", True),
-    ("skip_senior", "Skip senior roles?", False),
-    ("skip_assistant_roles", "Skip virtual-assistant, admin and data-entry work?", True),
-    ("skip_call_centres", "Skip call-centre, BPO and big outsourcing firms "
-                          "(Concentrix, Accenture...)?", True),
-]
+# Typed as a company to leave out, any of these turns on filters.skip_call_centres
+# (the ~45 firms in filters.CALL_CENTRE_COMPANIES) instead of being kept as a name.
+CALL_CENTRE_WORDS = {"bpo", "call centre", "call centres", "call center", "call centers"}
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
@@ -101,6 +94,8 @@ def _scalar(value) -> str:
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return str(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_scalar(item) for item in value) + "]"
     text = str(value)
     if re.fullmatch(r"[A-Za-z0-9_./@-]+", text) and yaml.safe_load(text) == text:
         return text
@@ -128,7 +123,7 @@ def set_yaml_value(text: str, path: tuple, value, insert: bool = False) -> str:
     puts it has been rearranged by someone who should decide where it goes.
 
     `insert` is the exception, for switches newer than the config being edited:
-    a config written before the presets has no filters.skip_senior, and the key
+    a config written before the search step has no filters.include_titles, and the key
     is added at the top of its block rather than refused.
     """
     eol = _eol(text)
@@ -153,8 +148,23 @@ def set_yaml_value(text: str, path: tuple, value, insert: bool = False) -> str:
     found = _find(lines, start, end, indent, path[-1])
     if found is not None:
         index, match = found
-        lines[index] = (f"{match['indent']}{match['key']}:{match['gap'] or ' '}"
-                        f"{_scalar(value)}{match['tail'] or ''}")
+        stop = index + 1
+        if isinstance(value, (list, tuple)):
+            # The old list may run over several lines: a block of "- item" lines,
+            # or a flow list broken across lines, with comments among them. All of
+            # it is the old value, up to the first line at the key's own depth.
+            depth = len(match["indent"])
+            while stop < len(lines):
+                line = lines[stop]
+                lead = len(line) - len(line.lstrip())
+                if line.strip() and not (lead > depth
+                                         or (lead == depth and line.lstrip().startswith("- "))):
+                    break
+                stop += 1
+            while stop > index + 1 and not lines[stop - 1].strip():
+                stop -= 1
+        lines[index:stop] = [f"{match['indent']}{match['key']}:{match['gap'] or ' '}"
+                             f"{_scalar(value)}{match['tail'] or ''}"]
     elif not insert:
         raise SetupError(f"config.yaml has no `{'.'.join(path)}` to set")
     elif len(path) == 1:
@@ -624,37 +634,79 @@ class _Wizard:
                 return int(raw)
             self.out("  a whole number" + (f" from {low} to {high}" if high is not None else ""))
 
-    def _search(self) -> None:
-        from .filters import PRESET_TERMS
+    def _words(self, prompt: str, current: list) -> list:
+        """A comma-separated list as typed. Enter keeps `current`, "none" empties
+        it. Words are trimmed, lower-cased, and kept once each in the order typed."""
+        shown = ", ".join(str(word) for word in current)
+        if len(shown) > 70:
+            shown = shown[:67].rstrip(", ") + "..."
+        raw = self.ask(f"  {prompt}" + (f" [{shown}]" if shown else "") + ": ").strip()
+        if not raw:
+            return list(current)
+        if raw.lower() in ("none", "clear", "-"):
+            return []
+        words: list[str] = []
+        for part in raw.split(","):
+            word = " ".join(part.split()).lower()
+            if word and word not in words:
+                words.append(word)
+        return words
 
+    def _search(self) -> None:
+        """The person's own words, not the author's preferences.
+
+        Every list starts empty and every question is optional, so a new install
+        keeps everything its alerts bring in until its owner says otherwise. A
+        list is written only when its answer changed: pressing Enter leaves a
+        hand-commented list in config.yaml exactly as it was.
+        """
         self._title(4, "Your search")
-        self.out("  What jobsift throws away before it spends anything on a job. Each answer\n"
-                 "  is an on/off switch in config.yaml, so it can be changed there any time.")
+        self.out("  What to keep and what to leave out, before anything is spent on a job.\n"
+                 "  All optional, and it starts open. Type words separated by commas, press\n"
+                 "  Enter to keep what is there, or type none to empty a list. Words match\n"
+                 "  as whole words, in any case, on every source.")
         cfg = self._config_now()
         filters_cfg = cfg.get("filters") or {}
-        own_titles = [str(t).lower() for t in filters_cfg.get("exclude_titles") or []]
-        own_companies = [str(c).lower() for c in filters_cfg.get("exclude_companies") or []]
         edits = []
-        for key, question, fallback in PRESETS:
-            # A config written before the switches spells the words out itself.
-            # Asked with the answer that matches what it already does.
-            mine = own_companies if key == "skip_call_centres" else own_titles
-            listed = [term for term in PRESET_TERMS[key] if term in mine]
-            current = filters_cfg.get(key)
-            answer = self._yes(question, bool(current) if current is not None
-                               else (bool(listed) or fallback))
-            edits.append((("filters", key), answer))
-            if not answer and listed:
-                shown = ", ".join(listed[:4]) + ("..." if len(listed) > 4 else "")
-                self.out(f"    your own list in config.yaml still names {shown}; "
-                         "remove those to let them through")
-        floor = self._number("Lowest monthly pay you would take, in pesos (0 for no floor)",
-                             int(filters_cfg.get("min_salary_php") or 0))
-        threshold = self._number("Alert when a job scores at least, out of 100",
-                                 int(cfg.get("score_threshold") or 60), 0, 100)
-        edits += [(("filters", "min_salary_php"), floor), (("score_threshold",), threshold)]
-        self._save_config(edits, insert=True)
-        self.out("  saved.")
+
+        def asked(path, answer, current):
+            if answer != current:
+                edits.append((path, answer))
+
+        include = list(filters_cfg.get("include_titles") or [])
+        asked(("filters", "include_titles"), self._words(
+            "Jobs you want, as words in the title (e.g. developer, virtual assistant, "
+            "data analyst). Empty keeps every title", include), include)
+        boost = list(cfg.get("priority_keywords") or [])
+        asked(("priority_keywords",), self._words(
+            "Work you would especially like, which scores higher (e.g. react, remote, "
+            "healthcare)", boost), boost)
+        titles = list(filters_cfg.get("exclude_titles") or [])
+        asked(("filters", "exclude_titles"), self._words(
+            "Words in a title to leave out (e.g. senior, sales, call center)", titles), titles)
+        companies = list(filters_cfg.get("exclude_companies") or [])
+        switch = bool(filters_cfg.get("skip_call_centres"))
+        shown = companies + (["bpo"] if switch else [])
+        typed = self._words('Companies to leave out (type "bpo" to add the ~45 call-centre '
+                            "and BPO firms jobsift knows)", shown)
+        if typed != shown:
+            # "bpo" here is the shortcut, not a company: it turns on the list in
+            # filters.CALL_CENTRE_COMPANIES, which already ends in "bpo" itself.
+            asked(("filters", "exclude_companies"),
+                  [word for word in typed if word not in CALL_CENTRE_WORDS], companies)
+            asked(("filters", "skip_call_centres"),
+                  any(word in CALL_CENTRE_WORDS for word in typed), switch)
+        floor = int(filters_cfg.get("min_salary_php") or 0)
+        asked(("filters", "min_salary_php"), self._number(
+            "Lowest monthly pay you would take, in pesos (0 for no floor)", floor), floor)
+        threshold = int(cfg.get("score_threshold") or 60)
+        asked(("score_threshold",), self._number(
+            "Alert when a job scores at least, out of 100", threshold, 0, 100), threshold)
+        if edits:
+            self._save_config(edits, insert=True)
+            self.out("  saved.")
+        else:
+            self.out("  nothing changed.")
 
     def _telegram(self) -> None:
         self._title(5, "Telegram alerts (optional)")

@@ -64,7 +64,7 @@ edits = [
     (("google_sheet", "sheet_id"), SHEET_ID),
     (("google_sheet", "service_account_file"), "./keys/robot key.json"),
     (("worker", "ssh"), "kim@203.0.113.7"),
-    (("filters", "skip_senior"), True),
+    (("filters", "include_titles"), ["developer", "virtual assistant"]),
 ]
 text = original_text
 for path, value in edits:
@@ -92,14 +92,38 @@ for path in [("google_sheet", "worksheet_closed"), ("nosuchblock", "enabled")]:
 
 # A config written before the presets has no switches. Setup adds them rather
 # than refusing, and only when asked to.
-older = re.sub(r"(?m)^\s+skip_(junior|senior|assistant_roles|call_centres):.*\n", "", original_text)
-added = yaml.safe_load(set_yaml_value(older, ("filters", "skip_senior"), True, insert=True))
+older = re.sub(r"(?m)^\s+include_titles:.*\n", "", original_text)
+added = yaml.safe_load(set_yaml_value(older, ("filters", "include_titles"), ["va"], insert=True))
 before_filters = yaml.safe_load(older)["filters"]
-check("insert adds a switch an older config lacks",
-      added["filters"].get("skip_senior") is True
-      and {k: v for k, v in added["filters"].items() if k != "skip_senior"} == before_filters)
+check("insert adds a key an older config lacks",
+      added["filters"].get("include_titles") == ["va"]
+      and {k: v for k, v in added["filters"].items() if k != "include_titles"} == before_filters)
 check("and a missing top-level key goes at the end",
       yaml.safe_load(set_yaml_value("a: 1\n", ("b",), 2, insert=True)) == {"a": 1, "b": 2})
+
+# The author's own config writes its lists by hand, over many commented lines.
+# Replacing one must take all of it and nothing after it.
+shapes = ("filters:\n"
+          "  exclude_titles:\n"
+          "    # seniority\n"
+          "    - junior\n"
+          "    - senior\n"
+          "  exclude_companies:\n"
+          "    [accenture, concentrix,\n"
+          "     # a comment inside\n"
+          "     bpo]\n"
+          "  # the next key's own comment\n"
+          "  min_salary_php: 50000\n"
+          "after: 1\n")
+out = set_yaml_value(shapes, ("filters", "exclude_titles"), ["qa"])
+out = set_yaml_value(out, ("filters", "exclude_companies"), ["acme corp"])
+parsed = yaml.safe_load(out)
+check("a block list is replaced whole", parsed["filters"]["exclude_titles"] == ["qa"], out)
+check("so is a flow list over several lines, comments and all",
+      parsed["filters"]["exclude_companies"] == ["acme corp"] and "inside" not in out)
+check("and the next key keeps its comment and value",
+      "# the next key's own comment" in out and parsed["filters"]["min_salary_php"] == 50000
+      and parsed["after"] == 1)
 
 crlf = set_yaml_value(original_text.replace("\n", "\r\n"), ("llm_provider",), "openai")
 check("a CRLF file stays CRLF", crlf.count("\n") == crlf.count("\r\n"))
@@ -140,8 +164,8 @@ for raw, want in [
     check(f"{raw[:48] or '(empty)'}", parse_sheet_id(raw) == want, parse_sheet_id(raw))
 
 
-# ── presets ──────────────────────────────────────────────────────────────────
-print("\npresets\n" + "-" * 78)
+# ── the search lists ─────────────────────────────────────────────────────────
+print("\nthe search lists\n" + "-" * 78)
 from jobsift.filters import check as passes  # noqa: E402
 
 
@@ -149,18 +173,21 @@ def posting(title, company="Acme"):
     return {"title": title, "company": company}
 
 
-check("skip_junior drops a junior title",
-      not passes(posting("Junior Python Developer"), {"skip_junior": True})[0])
-check("and keeps it when off", passes(posting("Junior Python Developer"), {"skip_junior": False})[0])
-check("a senior title stays unless skip_senior is on",
-      passes(posting("Senior Backend Engineer"), {"skip_junior": True})[0]
-      and not passes(posting("Senior Backend Engineer"), {"skip_senior": True})[0])
-check("skip_call_centres drops a named BPO",
+wanted = {"include_titles": ["developer", "virtual assistant", "va"]}
+check("include keeps a title that names one of its words",
+      passes(posting("Python Developer"), wanted)[0]
+      and passes(posting("Virtual Assistant (Part-time)"), wanted)[0])
+check("and drops one that names none", not passes(posting("Sales Manager"), wanted)[0])
+check("an empty include keeps everything", passes(posting("Sales Manager"), {"include_titles": []})[0])
+check("whole words only: va is a VA title, not a Vacancy",
+      passes(posting("VA - Admin Support"), wanted)[0]
+      and not passes(posting("Vacancy: Line Cook"), wanted)[0])
+check("a word left out beats one included",
+      not passes(posting("Senior Developer"), {**wanted, "exclude_titles": ["senior"]})[0])
+check("the call-centre shortcut drops a named firm",
       not passes(posting("Developer", "Concentrix Philippines"), {"skip_call_centres": True})[0])
-check("an own list still works beside the presets",
-      not passes(posting("QA Engineer"), {"skip_junior": True, "exclude_titles": ["qa"]})[0])
-check("whole words only: International is not an intern",
-      passes(posting("International Support Engineer"), {"skip_junior": True})[0])
+check("and does nothing unless asked for",
+      passes(posting("Developer", "Concentrix Philippines"), {"skip_call_centres": False})[0])
 
 # ── providers ────────────────────────────────────────────────────────────────
 print("\nproviders\n" + "-" * 78)
@@ -288,11 +315,11 @@ FIRST_RUN = [
     ("secret", "OPENAI_API_KEY", "sk-good-1234567890"),
     ("text", "Gmail address", "kim@example.com"),
     ("secret", "App password", "abcd efgh ijkl mnop"),
-    ("text", "Skip junior roles, internships and trainee posts? [Y/n]", ""),
-    ("text", "Skip senior roles? [y/N]", "y"),
-    ("text", "Skip virtual-assistant, admin and data-entry work? [Y/n]", "n"),
-    ("text", "Skip call-centre, BPO and big outsourcing firms", ""),
-    ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [40000]", "55k"),
+    ("text", "Jobs you want, as words in the title", "Developer, virtual  assistant, developer"),
+    ("text", "Work you would especially like", ""),
+    ("text", "Words in a title to leave out", "senior"),
+    ("text", "Companies to leave out", "bpo, Acme Staffing"),
+    ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [0]", "55k"),
     ("text", "Alert when a job scores at least, out of 100 [60]", "70"),
     ("text", "Set up Telegram alerts? [Y/n]", ""),
     ("secret", "Bot token", "123456789:AAH-secret-token"),
@@ -306,10 +333,10 @@ SECOND_RUN = [
     ("secret", "OPENAI_API_KEY (typing is hidden) [set, ends ...7890", ""),
     ("text", "Gmail address [kim@example.com]", ""),
     ("secret", "App password (typing is hidden) [set, ends ...mnop", ""),
-    ("text", "Skip junior roles, internships and trainee posts? [Y/n]", ""),
-    ("text", "Skip senior roles? [Y/n]", ""),
-    ("text", "Skip virtual-assistant, admin and data-entry work? [y/N]", ""),
-    ("text", "Skip call-centre, BPO and big outsourcing firms", ""),
+    ("text", "Empty keeps every title [developer, virtual assistant]", ""),
+    ("text", "Work you would especially like", ""),
+    ("text", "leave out (e.g. senior, sales, call center) [senior]", ""),
+    ("text", "firms jobsift knows) [acme staffing, bpo]", ""),
     ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [55000]", ""),
     ("text", "Alert when a job scores at least, out of 100 [70]", ""),
     ("text", "Telegram is already set up (chat 777). Set it up again? [y/N]", ""),
@@ -347,11 +374,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the provider is saved, and its default models left to apply",
           cfg["llm_provider"] == "openai" and not cfg.get("models"), cfg.get("models"))
     answers = {k: cfg["filters"].get(k) for k in (
-        "skip_junior", "skip_senior", "skip_assistant_roles", "skip_call_centres", "min_salary_php")}
-    check("the search answers are saved as switches",
-          answers == {"skip_junior": True, "skip_senior": True, "skip_assistant_roles": False,
+        "include_titles", "exclude_titles", "exclude_companies", "skip_call_centres",
+        "min_salary_php")}
+    check("the search answers are saved as the person typed them",
+          answers == {"include_titles": ["developer", "virtual assistant"],
+                      "exclude_titles": ["senior"], "exclude_companies": ["acme staffing"],
                       "skip_call_centres": True, "min_salary_php": 55000}
-          and cfg["score_threshold"] == 70, answers)
+          and cfg["score_threshold"] == 70 and cfg["priority_keywords"] == [], answers)
     check("the sheet is on, by id",
           cfg["google_sheet"] == {**cfg["google_sheet"], "enabled": True, "sheet_id": SHEET_ID,
                                   "service_account_file": "./service-account.json"})

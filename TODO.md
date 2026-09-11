@@ -85,14 +85,24 @@ In order:
       **Not yet tried against the live OpenAI or DeepSeek API** (no key on this
       machine); `dryrun_setup.py` checks the requests with a fake client. Existing
       configs keep the models they name.
-- [x] **Done 2026-09-11. Presets in `--setup`, as a "Your search" step:** skip junior roles, skip
-      senior roles, skip assistant/admin work, skip call-centre companies, the
-      minimum monthly pay (PHP), and the alert threshold. The title and company
-      lists become on/off switches whose word lists live in `filters.py`, unioned
-      with whatever the user lists themselves, so a config that already spells the
-      lists out behaves exactly as before. Switches rather than list edits because
-      the lists span many commented lines, and setup edits config.yaml one scalar
-      at a time to keep every comment.
+- [x] **Done 2026-09-11, then reworked the same day: "Your search" in `--setup`
+      asks for the person's own words, not the author's preferences.** The first
+      version asked skip-junior, skip-senior and skip-assistant yes/no questions,
+      which were the author's choices dressed up as presets. The owner's call: "for
+      job preference it should be as open as possible". Setup now asks for words:
+      what a title must contain (`filters.include_titles`; empty keeps all), what
+      scores higher (`priority_keywords`), title words and companies to leave out,
+      the pay floor, and the alert threshold. Typing "bpo" as a company turns on the
+      ~45-firm call-centre list (`skip_call_centres`). The example config now starts
+      open: empty lists, no priority words, no pay floor, and unpriced jobs kept.
+      Lists are written as one-line YAML lists, and only when the answer changed, so
+      a hand-commented list survives a setup run where Enter was pressed.
+- [ ] **The scrape sources still carry the author's words.** `onlinejobs_ph`,
+      `jobstreet_api` and `remote_feeds` have their own `search_keywords` and
+      `include_keywords` in the example (developer, AI, automation...). A user after
+      VA work would have to rewrite them by hand, or enabling onlinejobs.ph would
+      drop every VA job at its own title gate. Feed `include_titles` into them, or
+      have setup ask when a source is switched on.
 - [ ] **A job page that replaces the Google Sheet as the default screen.** The sheet
       stays as an option. The page shows job cards with score, pay, the warnings
       (degree required, scored on a snippet) and the apply link, plus stage and
