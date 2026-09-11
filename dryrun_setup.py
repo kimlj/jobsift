@@ -320,6 +320,7 @@ FIRST_RUN = [
     ("text", "Words in a title to leave out", "senior"),
     ("text", "Companies to leave out", "bpo, Acme Staffing"),
     ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [0]", "55k"),
+    ("text", "Drop jobs that don't state their pay? [y/N]", ""),
     ("text", "Alert when a job scores at least, out of 100 [60]", "70"),
     ("text", "Set up Telegram alerts? [Y/n]", ""),
     ("secret", "Bot token", "123456789:AAH-secret-token"),
@@ -338,6 +339,7 @@ SECOND_RUN = [
     ("text", "leave out (e.g. senior, sales, call center) [senior]", ""),
     ("text", "firms jobsift knows) [acme staffing, bpo]", ""),
     ("text", "Lowest monthly pay you would take, in pesos (0 for no floor) [55000]", ""),
+    ("text", "Drop jobs that don't state their pay? [y/N]", ""),
     ("text", "Alert when a job scores at least, out of 100 [70]", ""),
     ("text", "Telegram is already set up (chat 777). Set it up again? [y/N]", ""),
     ("text", "The Google Sheet is already set up. Set it up again? [y/N]", ""),
@@ -380,7 +382,10 @@ with tempfile.TemporaryDirectory() as tmp:
           answers == {"include_titles": ["developer", "virtual assistant"],
                       "exclude_titles": ["senior"], "exclude_companies": ["acme staffing"],
                       "skip_call_centres": True, "min_salary_php": 55000}
-          and cfg["score_threshold"] == 70 and cfg["priority_keywords"] == [], answers)
+          and cfg["score_threshold"] == 70 and cfg["priority_keywords"] == []
+          and cfg["filters"]["drop_when_salary_unknown"] is False, answers)
+    check("the unpriced question says what it costs, and recommends no",
+          "43% of Indeed" in printed and "Recommended: no" in printed)
     check("the sheet is on, by id",
           cfg["google_sheet"] == {**cfg["google_sheet"], "enabled": True, "sheet_id": SHEET_ID,
                                   "service_account_file": "./service-account.json"})

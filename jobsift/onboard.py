@@ -699,6 +699,12 @@ class _Wizard:
         floor = int(filters_cfg.get("min_salary_php") or 0)
         asked(("filters", "min_salary_php"), self._number(
             "Lowest monthly pay you would take, in pesos (0 for no floor)", floor), floor)
+        unpriced = bool(filters_cfg.get("drop_when_salary_unknown"))
+        self.out("  Many postings never say what they pay. Of 149 jobs in the author's inbox,\n"
+                 "  43% of Indeed, 47% of Jobstreet and all of LinkedIn's stated no salary, so\n"
+                 "  dropping them loses about half of what arrives. Recommended: no.")
+        asked(("filters", "drop_when_salary_unknown"),
+              self._yes("Drop jobs that don't state their pay?", unpriced), unpriced)
         threshold = int(cfg.get("score_threshold") or 60)
         asked(("score_threshold",), self._number(
             "Alert when a job scores at least, out of 100", threshold, 0, 100), threshold)

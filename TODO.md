@@ -47,6 +47,20 @@ droplet also runs WordWarz, MDS Pro, Casinore and SendIt.
       one pass with a 14-day lookback would read them. Anything older is past
       `max_age_days` anyway.
 
+- [ ] **Write sheet rows by column name, not in this version's column order.**
+      `append` and `append_many` build every row as `[_cell(h, record) for h in
+      HEADERS]` and write it from column A, whatever the tab's row 1 actually says.
+      When a header has been renamed, `_migrate_headers` rightly refuses to guess,
+      and the rows then land in the wrong columns: on 2026-09-11 "UI UX Developer
+      (Frontend)" arrived one column off on Below the bar, after A1 was renamed
+      `Status` by hand. The fix: read each tab's row 1 and place each value under
+      the header of the same name, leaving empty any column it cannot place, and
+      the same for rows moved between tabs. Names stay the right key, because a
+      position breaks the moment someone inserts a column of their own. Also worth
+      doing: a warning-only protected range on row 1 (addProtectedRange with
+      warningOnly), so an accidental header edit asks first instead of being
+      silent. A1 was put back to `stage` on 2026-09-11.
+
 ## Option A: jobsift for other PH developers (planned 2026-09-11)
 
 The goal: Filipino developers run their own copy. Each person's jobsift runs on their

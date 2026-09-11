@@ -228,7 +228,10 @@ filters:
   # If good jobs start going missing, this is the first switch to flip back.
   #
   # That was the author's choice for their own search. It is off here, so nothing
-  # is dropped for saying nothing about pay until you decide it should be.
+  # is dropped for saying nothing about pay until you decide it should be. What it
+  # costs, measured on the 149 jobs stored before it was switched on: 43% of Indeed,
+  # 47% of Jobstreet and all 10 LinkedIn jobs stated no salary. `--setup` asks, and
+  # recommends no.
   drop_when_salary_unknown: false
 
 # ── Which senders count as job alerts ──
