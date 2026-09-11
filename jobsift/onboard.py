@@ -997,7 +997,9 @@ class _Wizard:
                  f"    {self.cmd} --export jobs.csv\n"
                  "        everything it found, and why each job was kept or dropped\n"
                  f"    {self.keep_running}\n"
-                 "        and leave it running")
+                 "        and leave it running\n\n"
+                 "  To have it run all day without leaving your computer on, README.md,\n"
+                 "  \"Keep it running 24/7\", walks through getting a small server.")
         return 0
 
 

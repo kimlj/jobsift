@@ -122,22 +122,40 @@ a short snippet, or when it states a degree as required.
 to start jobsift by itself whenever you sign in. It pauses while the computer
 sleeps and carries on when it wakes; nothing is lost, it only arrives later.
 
-**On a small cloud server (VPS),** so it runs even when your computer is off:
+**On a small cloud server,** so it runs even when your computer is off. A cloud
+server (often called a "VPS") is a small computer you rent in a data centre, always
+on. If you have never had one, this is the whole process, about 15 minutes:
 
-1. Create a server with any cloud provider: DigitalOcean, Hetzner, Vultr and others
-   all work. Choose **Ubuntu** and the smallest size; that costs about US$4 to $6 a
-   month.
-2. Open the server's console. Every provider has a "Console" button in its web page,
-   or use `ssh root@your-server-address` from your computer.
-3. Paste the **Mac or Linux** line from step 2 and answer the setup as before. For
-   the resume, paste its text in.
-4. When it asks **"Keep jobsift running on this server, now and after every
-   restart?"**, answer `Y`. That's it: it is running, and it starts again by itself
+1. **Sign up at [DigitalOcean](https://www.digitalocean.com).** It asks for a card
+   or PayPal. It is recommended here because signing up is simple, it has a data
+   centre in Singapore (close to the Philippines, so it is fast), and its smallest
+   useful server is US$6 a month (price checked 11 Sep 2026). Any provider that
+   offers Ubuntu works the same way: Hetzner and Vultr are two others.
+2. **Create the server.** Click **Create**, then **Droplets** (DigitalOcean's name
+   for a server), and choose:
+   - Region: **Singapore**
+   - Image: **Ubuntu**, the newest version marked **LTS**
+   - Size: **Basic**, **Regular**, the **1 GB / US$6** plan. The US$4 plan has half
+     the memory, which is tight for installing jobsift.
+   - Authentication: **Password**. Make it long, and keep it in your password manager.
+
+   Then click **Create Droplet**. It is ready in about a minute.
+3. **Open its console.** Click the new server's name, then **Console** (under
+   *Access*). A black window opens: you are now typing on the server.
+4. **Paste the Mac or Linux line** from step 2 of this guide and press Enter.
+   Answer the setup questions as you would on your own computer. For the resume,
+   paste its text in.
+5. **Answer `Y`** when it asks *"Keep jobsift running on this server, now and after
+   every restart?"*. That's it: jobsift is running, and it starts again by itself
    after every restart.
 
-Useful afterwards: `journalctl -u jobsift -f` shows what it is doing, and running
-the install line again updates it. One board, onlinejobs.ph, blocks cloud servers;
-email alerts and the remote feeds work normally.
+Afterwards, from the same console: `journalctl -u jobsift -f` shows what it is
+doing (press Ctrl+C to leave it), and pasting the install line again updates it.
+To stop paying, destroy the server on its DigitalOcean page; DigitalOcean bills by
+the hour, so nothing else keeps charging.
+
+One board, onlinejobs.ph, blocks cloud servers; email alerts and the remote feeds
+work normally from one.
 
 **With Docker**, if you already use it: `docker compose run --rm jobsift --setup`,
 then `docker compose up -d`. See *Option D* in [docs/deploy.md](docs/deploy.md).
@@ -150,7 +168,8 @@ then `docker compose up -d`. See *Option D* in [docs/deploy.md](docs/deploy.md).
   day with DeepSeek, and around a dollar a day with Claude. The first run, which
   reads a week of email, costs more. Your provider's website shows exactly what you
   have used.
-- **A cloud server:** optional, about US$4 to $6 a month.
+- **A cloud server:** optional. DigitalOcean's 1 GB server is US$6 a month (checked
+  11 Sep 2026).
 - **Gmail and Telegram:** free.
 
 ### Your privacy
