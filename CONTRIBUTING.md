@@ -5,15 +5,15 @@ welcome; so is a bug report that just says what you expected and what happened.
 
 ## Before you send a change
 
-There is no test suite. There are eleven `dryrun_*.py` scripts instead, and they
+There is no test suite. There are twelve `dryrun_*.py` scripts instead, and they
 are the closest thing to one. Each answers a single question about behaviour and
 prints what it found rather than asserting — the point is that you read the
 output and judge it, because most of the interesting failures here are "this
 scored 22 on a snippet" rather than "this raised an exception".
 
-**Five run with no network and no API key.** Start here, and if your change
-touches filtering, dedup, the applied detector or the sheet, these are the ones
-that matter:
+**Six run with no network and no API key.** Start here, and if your change
+touches filtering, dedup, the applied detector, the sheet or the evidence index,
+these are the ones that matter:
 
 ```bash
 python dryrun_dedup.py       # normalised title::company dedup — does it over- or under-merge?
@@ -21,6 +21,7 @@ python dryrun_geography.py   # the location rules, in increasing order of surpri
 python dryrun_applied.py     # confirmation emails: does it fire only on real receipts?
 python dryrun_seen_skip.py   # a job already stored — is it skipped before it costs anything?
 python dryrun_closed.py      # staging a row Closed: does the right row move, intact, once?
+python dryrun_evidence.py    # the evidence index: miscounts, wrong identities, stale sources
 ```
 
 `dryrun_applied.py` is the one to read closely if you touch `applied.py`. Half
