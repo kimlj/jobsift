@@ -83,6 +83,9 @@ pip install -r requirements.txt
 cp .env.example .env                  # fill in secrets
 cp config.example.yaml config.yaml    # tune settings
 cp resume.example.txt resume.txt      # paste your profile
+cp career.example.yaml career.yaml    # optional: what your repos are, with sources
+
+python -m jobsift --index-repos   # count your repos into the brief drafts are written from
 
 python -m jobsift --once          # test one pass
 python -m jobsift --once --no-telegram   # ...and send no alerts while you inspect it
@@ -104,6 +107,8 @@ full job text: alert emails carry a truncated snippet, and the module needs the
 whole posting because employers bury compliance instructions ("start your message
 with the word PURPLE") in the last lines to catch people who skimmed.
 
+What a draft may claim about you, and how to give it more than your resume →
+[docs/evidence-index.md](docs/evidence-index.md).
 Full deployment — systemd, Windows Task Scheduler or cron, and how the host you
 pick decides which sources you can have → [docs/deploy.md](docs/deploy.md).
 Which boards to subscribe to → [docs/job-alert-sources.md](docs/job-alert-sources.md).
@@ -124,6 +129,9 @@ jobsift/            the app
   enrich.py             follow job link → clean page → LLM details
   score.py              resume scoring (skills + experience + salary)
   draft.py              cover letter + answers for one job (never sends)
+  agents.py             drafting as roles: extract, draft, verify each claim
+  evidence.py           counts your repos: commits, stack, migrations, CI
+  career.py             career.yaml + the counts -> the evidence brief; rule checks
   store.py              SQLite dedup + job log (versioned migrations)
   export.py             every stored job → CSV for Excel
   sheets.py             optional Google Sheet output
@@ -135,6 +143,7 @@ jobsift/            the app
     remote_feeds.py     remotive / Working Nomads / himalayas / jobicy
     onlinejobs.py       onlinejobs.ph public listing reader
 config.example.yaml     copy to config.yaml
+career.example.yaml     copy to career.yaml (optional)
 .env.example            copy to .env
 applier/                (planned) Claude-in-Chrome auto-applier
 ```
@@ -191,7 +200,7 @@ Never commit real tokens. If one leaks into git history, rotate it.
 
 ## Contributing
 
-There is no test suite; there are eight `dryrun_*.py` scripts, two of which run
+There is no test suite; there are twelve `dryrun_*.py` scripts, six of which run
 offline. See [CONTRIBUTING.md](CONTRIBUTING.md) for which need a key or network,
 and how to test a source adapter without hitting a live board.
 
