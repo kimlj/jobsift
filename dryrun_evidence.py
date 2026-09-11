@@ -21,6 +21,15 @@ from pathlib import Path
 
 from jobsift import career, evidence
 
+# Git for Windows can switch core.fsmonitor on for every repository, and then each
+# throwaway repo below starts its own monitor daemon. On 2026-09-11 a `git add -A`
+# waited on one and never returned, and the offline suite timed out at 300s. A
+# monitor buys nothing in a repo that lives for a second, so it is off for every
+# git this script starts, the evidence index's own calls included.
+os.environ.setdefault("GIT_CONFIG_COUNT", "1")
+os.environ.setdefault("GIT_CONFIG_KEY_0", "core.fsmonitor")
+os.environ.setdefault("GIT_CONFIG_VALUE_0", "false")
+
 FAILED = 0
 
 
