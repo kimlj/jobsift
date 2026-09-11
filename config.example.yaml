@@ -574,6 +574,13 @@ evidence:
   out: ./data/evidence.yaml
   career: ./career.yaml
   brief: ./data/career-brief.md
+  # Nothing to remember: while jobsift runs, its loop checks every
+  # `refresh_minutes` and rebuilds only if a repo got commits or career.yaml
+  # changed (offline, ~20s); every draft checks first; GitHub - new repos,
+  # pushes, merged PRs - is read every `github_every_hours`.
+  auto_refresh: true
+  refresh_minutes: 60
+  github_every_hours: 24
   # Every git repo directly under a root is found and named by its GitHub remote,
   # so folder names do not matter and two clones of one repo count once. Repos
   # whose remote belongs to someone else are skipped.

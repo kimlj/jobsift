@@ -102,21 +102,35 @@ Use the brief to see what it is missing, then check it against your rules:
 python -m jobsift --check-draft resume.txt
 ```
 
-**8. Keep it current.** Before drafting:
+**8. There is nothing to keep current by hand.** The index refreshes itself:
+
+- while jobsift runs, its loop checks every `refresh_minutes` (60);
+- every draft checks first, whether or not the loop is running;
+- a new commit in any counted repo, or an edit to `career.yaml`, rebuilds it
+  offline, and only the repos that moved are counted again;
+- GitHub - new repos, pushes to repos that live only there, merged PRs - is
+  read every `github_every_hours` (24), and a mirror is pulled only when GitHub
+  says it was pushed to. A merged PR's detail is fetched once, ever.
+
+So the first check after a night with the laptop asleep finds what changed
+since, not your whole history again, and when nothing changed it costs one git
+call per repo. Your resume is never read by a refresh. A failed refresh leaves
+the last brief in use rather than stopping the pipeline; `auto_refresh: false`
+turns all of it off. By hand, or from another tool:
 
 ```bash
-python -m jobsift --index-status   # "current", or STALE plus what changed; exits 1 when stale
+python -m jobsift --index-refresh   # rebuild only if something changed, and say what
+python -m jobsift --index-status    # what is stale, and when GitHub was last read
 ```
-
-A commit to any counted repo, or an edit to `career.yaml`, makes the brief stale.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `--index-repos` | Find and count every repo, merge `career.yaml`, write the brief |
+| `--index-repos` | Count every repo from scratch, merge `career.yaml`, write the brief. For the first build, or after changing what gets counted; otherwise the refresh keeps it current |
 | `--index-repos --offline` | The same without touching GitHub. Mirrors already on disk are still counted; merged PRs are carried over from the last build |
-| `--index-status` | Say whether the brief is current. Exit 1 when it is not |
+| `--index-refresh` | Rebuild only if something changed: offline for new commits or a `career.yaml` edit, with GitHub once it was last read over `github_every_hours` ago. What the loop and every draft run |
+| `--index-status` | Say what is stale and when GitHub was last read, without rebuilding. Exit 1 when anything is |
 | `--check-draft FILE...` | Run `career.yaml`'s rules over finished documents (`.txt`, `.md`, `.pdf`). Exit 1 on any break. No model involved |
 
 ## What counts as yours

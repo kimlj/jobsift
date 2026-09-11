@@ -383,3 +383,84 @@ def write_brief(career_path: str, evidence: dict, destination: str,
     path.write_text(text, encoding="utf-8")
     logger.info("career: wrote %s (%d chars, %d problem(s))", destination, len(text), len(problems))
     return problems
+
+
+def github_age_hours(payload: dict, now: datetime | None = None) -> float | None:
+    """Hours since the index last read GitHub; None when it never has."""
+    try:
+        checked = datetime.fromisoformat(str(payload.get("github_checked_at")))
+    except ValueError:
+        return None
+    return ((now or datetime.now()) - checked).total_seconds() / 3600
+
+
+def github_due(payload: dict, settings: dict, every_hours: float = 24,
+               now: datetime | None = None) -> bool:
+    """Whether GitHub should be read again. Never, for someone with no GitHub."""
+    if not settings.get("github_user"):
+        return False
+    age = github_age_hours(payload, now)
+    return age is None or age >= every_hours
+
+
+def index_state(settings: dict, career_path: str, brief_path: str,
+                github_every_hours: float = 24) -> dict:
+    """What is out of date, without rebuilding anything.
+
+    `local` lists what an offline rebuild would fix - new commits, an edited
+    career.yaml, no brief at all. GitHub is reported separately because it
+    changes on a different clock and costs a network round to check.
+    """
+    from .evidence import load_evidence, stale_repos
+
+    payload = load_evidence(str(settings.get("out") or "./data/evidence.yaml"))
+    brief = Path(brief_path)
+    local: list[str] = []
+    if not payload or not brief.is_file():
+        local.append("no index has been built")
+    else:
+        local += [f"new commits in {name}" for name in stale_repos(payload)]
+        career = Path(career_path)
+        if career.is_file() and career.stat().st_mtime > brief.stat().st_mtime:
+            local.append(f"{career_path} was edited")
+    return {"local": local,
+            "github_age_hours": github_age_hours(payload),
+            "github_due": github_due(payload, settings, github_every_hours)}
+
+
+def refresh(settings: dict, career_path: str, brief_path: str, online: bool = True,
+            github_every_hours: float = 24) -> dict:
+    """Rebuild the index if something changed, and only then. Never raises.
+
+    Nobody has to remember to run this. jobsift's loop calls it hourly and every
+    draft calls it first, because a draft is the moment a stale brief costs
+    something. A local change rebuilds offline, and only the repos that got
+    commits are counted again. GitHub - new repos, pushes to repos that live only
+    there, merged PRs - is read at most once every `github_every_hours`, and even
+    then only a mirror GitHub reports a push for is pulled. After a night asleep
+    the first refresh therefore touches what changed, not the whole corpus.
+
+    Returns {"action": "none" | "offline" | "online" | "failed", "why": [...]}.
+    A failure leaves the last brief in place and says so; it never takes the
+    pipeline or a draft down with it.
+    """
+    from .evidence import write_evidence
+
+    try:
+        state = index_state(settings, career_path, brief_path, github_every_hours)
+        fetch = bool(online and state["github_due"])
+        if not (state["local"] or fetch):
+            return {"action": "none", "why": []}
+        why = list(state["local"])
+        if fetch:
+            age = state["github_age_hours"]
+            why.append("GitHub never checked" if age is None
+                       else f"GitHub last checked {age:.0f}h ago")
+        payload = write_evidence(settings, fetch=fetch)
+        write_brief(career_path, payload, brief_path)
+        logger.info("career: index refreshed %s (%s)",
+                    "with GitHub" if fetch else "offline", "; ".join(why))
+        return {"action": "online" if fetch else "offline", "why": why}
+    except Exception as exc:
+        logger.warning("career: index refresh failed (%s); the last brief stays in use", exc)
+        return {"action": "failed", "why": [str(exc)]}

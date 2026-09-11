@@ -37,6 +37,11 @@ def _make_draft(config, llm, job, posting, resume, profile):
             # The brief when it has been built, since it carries what the counts
             # cannot: which repo is which product, and what must never be said.
             brief = Path(settings.get("brief") or "./data/career-brief.md")
+            if settings.get("auto_refresh", True):
+                # Just in time, unthrottled: this is the moment a stale brief
+                # would put last month's work, or none of this week's, in a letter.
+                career.refresh(settings, settings.get("career") or "./career.yaml", str(brief),
+                               github_every_hours=float(settings.get("github_every_hours") or 24))
             evidence = (brief.read_text(encoding="utf-8") if brief.is_file()
                         else summarise(load_index(settings.get("out", "./data/evidence.yaml"))))
             rules = career.load(settings.get("career") or "./career.yaml").get("rules") or []
@@ -323,12 +328,21 @@ def main() -> None:
     parser.add_argument(
         "--offline",
         action="store_true",
-        help="With --index-repos: count only what is on disk, never touch GitHub.",
+        help="With --index-repos or --index-refresh: count only what is on disk, "
+             "never touch GitHub.",
     )
     parser.add_argument(
         "--index-status",
         action="store_true",
-        help="Say whether the evidence brief is current, and exit 1 if it is not.",
+        help="Say what in the evidence brief is stale and when GitHub was last "
+             "checked; exit 1 if anything is. Rebuilds nothing.",
+    )
+    parser.add_argument(
+        "--index-refresh",
+        action="store_true",
+        help="Rebuild the evidence brief only if something changed: offline for "
+             "local commits or a career.yaml edit, with GitHub once a day. The same "
+             "refresh the loop runs hourly and every draft runs first.",
     )
     parser.add_argument(
         "--check-draft",
@@ -485,7 +499,9 @@ def main() -> None:
 
         if not (evidence_settings.get("roots") or evidence_settings.get("repos")):
             raise SystemExit("No `evidence.roots` or `evidence.repos` in config.yaml to index.")
-        payload = write_evidence(evidence_settings, fetch=not args.offline)
+        # From scratch on purpose: this is the command for after changing what
+        # gets counted. Keeping the index current is --index-refresh's job.
+        payload = write_evidence(evidence_settings, fetch=not args.offline, reuse=False)
         print(summarise(payload["repos"]))
         problems = career.write_brief(career_path, payload, brief_path)
         for name, why in (payload.get("not_counted") or {}).items():
@@ -512,23 +528,34 @@ def main() -> None:
             print("\n".join(f"  {h['rule']}: {h['problem']}" for h in resume_hits))
         return
 
-    if args.index_status:
-        from .evidence import load_evidence, stale_repos
+    github_hours = float(evidence_settings.get("github_every_hours") or 24)
 
-        payload = load_evidence(evidence_settings.get("out") or "./data/evidence.yaml")
-        stale = stale_repos(payload)
-        brief = Path(brief_path)
-        edited = (Path(career_path).is_file() and brief.is_file()
-                  and Path(career_path).stat().st_mtime > brief.stat().st_mtime)
-        if not brief.is_file():
-            stale.append("(no brief has been built)")
-        if edited:
-            stale.append(f"({career_path} was edited after the brief was built)")
+    if args.index_status:
+        from . import career
+
+        state = career.index_state(evidence_settings, career_path, brief_path, github_hours)
+        age = state["github_age_hours"]
+        print("GitHub last checked: " + ("never" if age is None else f"{age:.0f}h ago")
+              + (f" (due: over {github_hours:.0f}h)" if state["github_due"] else ""))
+        stale = state["local"] + (["GitHub check due"] if state["github_due"] else [])
         if stale:
-            print("STALE - rebuild with --index-repos. Changed since the count: "
-                  + ", ".join(stale))
+            print("STALE - " + "; ".join(stale) + ". --index-refresh rebuilds it.")
             raise SystemExit(1)
-        print(f"current - {brief_path}, counted {payload.get('generated_at')}")
+        print(f"current - {brief_path}")
+        return
+
+    if args.index_refresh:
+        from . import career
+
+        done = career.refresh(evidence_settings, career_path, brief_path,
+                              online=not args.offline, github_every_hours=github_hours)
+        print({"none": "current - nothing to rebuild",
+               "offline": "rebuilt offline",
+               "online": "rebuilt, GitHub included",
+               "failed": "refresh FAILED, the last brief stays in use"}[done["action"]]
+              + (": " + "; ".join(done["why"]) if done["why"] else ""))
+        if done["action"] == "failed":
+            raise SystemExit(1)
         return
 
     if args.check_draft:
@@ -775,8 +802,27 @@ def main() -> None:
 
     log.info("jobsift started (%s)", "single run" if args.once else f"every {config.poll_interval_seconds}s")
 
+    # The evidence index keeps itself current here, so nobody has to remember to.
+    # Checked at start-up and then every refresh_minutes, on the wall clock
+    # rather than a monotonic one: after a night with the laptop asleep the check
+    # must be overdue on waking, not eight hours away. A check that finds nothing
+    # costs one git call per repo, and a rebuild counts only the repos that moved.
+    auto_refresh = bool(evidence_settings.get("enabled")
+                        and evidence_settings.get("auto_refresh", True))
+    refresh_every = 60 * float(evidence_settings.get("refresh_minutes") or 60)
+    next_refresh = 0.0
+
     while True:
         try:
+            if auto_refresh and time.time() >= next_refresh:
+                next_refresh = time.time() + refresh_every
+                from . import career
+
+                done = career.refresh(evidence_settings, career_path, brief_path,
+                                      github_every_hours=github_hours)
+                if done["action"] != "none":
+                    log.info("Evidence index: %s (%s)", done["action"], "; ".join(done["why"]))
+
             # Both of these read cells the user edited, and both run before the
             # pass rather than after it. A pass spends minutes in the scrape
             # sources - onlinejobs.ph is paced to its robots.txt Crawl-delay,

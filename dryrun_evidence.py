@@ -11,10 +11,12 @@ purpose, in throwaway repos, and must be caught.
 
 from __future__ import annotations
 
+import copy
 import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from jobsift import career, evidence
@@ -220,12 +222,59 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a forbidden name fires", career.check_text("I built multiwordle", rules)[0]["rule"] == "name")
     check("a number inside a bigger number does not", not career.check_text("5700 players", rules))
 
+    print("── refresh ──")
+    refresh_settings = {**settings, "out": str(Path(tmp) / "evidence.yaml")}
+    career_file, brief_file = Path(tmp) / "career.yaml", Path(tmp) / "brief.md"
+    career_file.write_text("projects: []\n", encoding="utf-8")
+    first = career.refresh(refresh_settings, str(career_file), str(brief_file), online=False)
+    check("with no index, a refresh builds one",
+          first["action"] == "offline" and brief_file.is_file(), str(first))
+    second = career.refresh(refresh_settings, str(career_file), str(brief_file), online=False)
+    check("with nothing changed, a refresh does nothing", second["action"] == "none", str(second))
+    later = brief_file.stat().st_mtime + 10
+    os.utime(career_file, (later, later))
+    third = career.refresh(refresh_settings, str(career_file), str(brief_file), online=False)
+    check("an edited career.yaml rebuilds it",
+          third["action"] == "offline" and "edited" in " ".join(third["why"]), str(third))
+    now = datetime.now()
+    ago = lambda hours: {"github_checked_at": (now - timedelta(hours=hours)).isoformat(timespec="seconds")}
+    check("GitHub is due after a day and not before",
+          career.github_due(ago(25), {"github_user": "kim"}, 24, now)
+          and not career.github_due(ago(23), {"github_user": "kim"}, 24, now))
+    check("GitHub is due if never read, and never due without a GitHub user",
+          career.github_due({}, {"github_user": "kim"}) and not career.github_due({}, {}))
+
     print("── staleness ──")
     check("a fresh index is current", evidence.stale_repos(payload) == [], str(evidence.stale_repos(payload)))
     git(root / "scratch", "-c", "user.name=T", "-c", "user.email=t@example.com",
         "commit", "-q", "--allow-empty", "-m", "later",
         env={"GIT_COMMITTER_DATE": "2099-01-01T00:00:00+00:00"})
     check("a commit after the count makes it stale", evidence.stale_repos(payload) == ["scratch"])
+
+    print("── incremental ──")
+    before = copy.deepcopy(payload)
+    before["repos"]["ore-cli-codex"]["test_files"] = 999      # a marker no real count writes
+    again = evidence.index_all(settings, fetch=False, previous=before)
+    check("a repo still on the counted commit is not counted again",
+          again["repos"]["ore-cli-codex"].get("test_files") == 999)
+    add_commit(root / "ore-cli", "Kim <kim@example.com>", {"y.ts": ""})
+    again = evidence.index_all(settings, fetch=False, previous=before)
+    check("a repo with a new commit is",
+          again["repos"]["ore-cli-codex"].get("test_files") != 999
+          and again["repos"]["ore-cli-codex"].get("files_by_language") == {"TypeScript": 1},
+          str(again["repos"]["ore-cli-codex"]))
+    old_rules = copy.deepcopy(payload)
+    old_rules["count_version"] = -1
+    old_rules["repos"]["Shop"]["test_files"] = 999
+    check("a change to what gets counted counts every repo again",
+          evidence.index_all(settings, fetch=False, previous=old_rules)["repos"]["Shop"]
+          .get("test_files") != 999)
+    other_author = copy.deepcopy(payload)
+    other_author["authors"] = ["someone-else@example.com"]
+    other_author["repos"]["Shop"]["test_files"] = 999
+    check("so does a change to whose commits count",
+          evidence.index_all(settings, fetch=False, previous=other_author)["repos"]["Shop"]
+          .get("test_files") != 999)
 
 print()
 print("all checks passed" if not FAILED else f"{FAILED} check(s) FAILED")
