@@ -41,3 +41,7 @@ career.yaml
 # database, and they contain the actual job listings a run collected.
 jobs-*.csv
 unpriced-report.*
+
+# The VA lane (config.va.yaml, docs/va-lane.md)
+config.va.yaml
+resume-va.txt

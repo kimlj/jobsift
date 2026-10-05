@@ -62,6 +62,9 @@ def send_telegram(bot_token: str, chat_id: str, record: dict, options: dict | No
 
     # A priority match is flagged so it is spottable while scrolling.
     flag = "⚡ " if record.get("priority_bonus") else ""
+    # Which lane sent it, when more than one shares a chat (telegram.label).
+    if options.get("label"):
+        flag = f"[{_esc(options['label'])}] " + flag
 
     lines = [
         f"{flag}<b>{_esc(record.get('score'))}/100</b> · {_esc(record.get('job_title'))}",

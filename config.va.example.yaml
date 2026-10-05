@@ -1,0 +1,116 @@
+# The VA lane: virtual-assistant work on onlinejobs.ph, kept apart from the
+# developer lane in its own database, its own Google Sheet and its own profile.
+# See docs/va-lane.md. Copy to config.va.yaml, set google_sheet.sheet_id, and run:
+#
+#   python -m jobsift --config config.va.yaml
+#
+# Every key not set here takes the same default as config.yaml.
+
+# The developer lane's laptop has no working Anthropic credit; DeepSeek is the
+# provider everywhere since 2026-09-23. Needs DEEPSEEK_API_KEY in .env.
+llm_provider: deepseek
+
+# The inbox belongs to the developer lane. Reading it here as well would extract
+# and score every alert email a second time into this database.
+email_enabled: false
+learn_senders: false
+
+# Nothing to poll but the scrape source, so the loop wakes every 10 minutes and
+# onlinejobs.ph is read once an hour (interval_seconds below).
+poll_interval_seconds: 600
+
+database_path: ./data/va.db
+# What VA postings are scored against: the same person, written for VA work,
+# with what is NOT on record listed so it scores as a gap rather than a match.
+resume_path: ./resume-va.txt
+
+# Measured 2026-10-05 over 375 priced onlinejobs.ph VA listings: median about
+# PHP 43,000 a month, middle half PHP 20,000 to 58,000. The salary score is
+# full-ish at this baseline and full at double it.
+salary_baseline_php: 45000
+score_threshold: 60
+min_fit_ratio: 0.3
+
+# The tech side of VA work is where this candidate is strong, and it is also the
+# best-paid group in that measurement (median about PHP 46,000).
+priority_keywords: [zapier, make, n8n, automation, automations, ai, chatgpt,
+                    google sheets, apps script, gohighlevel, ghl, go high level,
+                    crm, airtable, clickup, notion, hubspot, tech]
+priority_points: 10
+
+telegram_enabled: true
+telegram:
+  # Prefixes every alert, since both lanes share one chat.
+  label: VA
+  description_chars: 200
+  reasoning_chars: 200
+  show_missing_skills: true
+
+multi_agent_drafting: false
+
+# onlinejobs.ph pages are read by the scrape source at its Crawl-delay. Without
+# this, enrich re-fetches any page that did not yield the full posting (a
+# removed listing answers 410) with no delay at all: 4 such requests on the
+# first pass, 2026-10-05.
+skip_link_domains: [onlinejobs.ph]
+# The developer lane keeps the evidence index; nothing here drafts from it.
+evidence:
+  enabled: false
+
+filters:
+  # Developer titles belong to the developer lane, which already reads them.
+  exclude_titles: [intern, internship, trainee, developer, engineer, programmer]
+  geography:
+    enabled: true
+  usd_to_php: 58
+  # VA postings fill fast; a week-old one with no reply is usually taken.
+  max_age_days: 7
+  min_salary_php: 25000
+  # Unlike the developer lane, an unpriced VA listing is kept and scored.
+  drop_when_salary_unknown: false
+  exclude_degree_required: false
+
+scrape_sources:
+  onlinejobs_ph:
+    enabled: true
+    interval_seconds: 3600
+    # One page (30 newest) per search, hourly, is the steady state: VA searches
+    # turn over within a day, and anything older is already in the database.
+    max_pages: 1
+    delay_seconds: 5
+    fetch_details: true
+    # Tech VA only (Kim, 2026-10-05): the biggest and best-paid group in the
+    # measurement above, and the one this profile wins. The site's search reads
+    # the whole posting, so a tool name here also finds a plainly titled
+    # "Virtual Assistant" whose body asks for that tool. There is deliberately no
+    # bare "virtual assistant" search: it returns every kind of VA work.
+    search_keywords: [tech virtual assistant, technical virtual assistant,
+                      gohighlevel, go high level, zapier, make.com, n8n,
+                      automation, crm, hubspot, clickup, airtable, notion,
+                      google sheets, apps script, ai tools, chatgpt]
+    # Title whitelist, whole words. The tech words, plus the plain VA titles,
+    # which only arrive here through one of the tech searches above.
+    include_keywords: [virtual assistant, va, assistant, admin, administrative,
+                       executive, operations, ops, coordinator, specialist,
+                       gohighlevel, ghl, go high level, highlevel, zapier, make,
+                       n8n, automation, automations, crm, hubspot, clickup,
+                       airtable, notion, systems, tech, technical, ai, integration,
+                       integrations, workflow, workflows, google sheets,
+                       spreadsheet, apps script]
+    # The kinds left out, caught when a whitelist word let them in
+    # ("Social Media Virtual Assistant", "Amazon VA", "Appointment Setter").
+    exclude_keywords: [video, editor, graphic, designer, bookkeeper, bookkeeping,
+                       accountant, accounting, social media, content creator, ugc,
+                       copywriter, writer, seo, media buyer, ads, customer service,
+                       customer support, chat support, data entry, tutor, teacher,
+                       recruiter, developer, engineer, programmer, appointment,
+                       setter, cold caller, cold calling, telemarketer, closer,
+                       sdr, sales, amazon, etsy, ecommerce, e-commerce]
+
+google_sheet:
+  enabled: true
+  sheet_id: ""
+  worksheet: Shortlist
+  worksheet_below: Below the bar
+  worksheet_closed: Closed
+  service_account_file: ./service-account.json

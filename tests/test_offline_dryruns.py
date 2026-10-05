@@ -28,6 +28,7 @@ OFFLINE = [
     ("dryrun_closed.py", []),
     ("dryrun_evidence.py", []),
     ("dryrun_worker.py", []),
+    ("dryrun_va_lane.py", []),
     ("dryrun_setup.py", []),
     ("dryrun_suggest_senders.py", []),
     ("dryrun_inbox.py", []),

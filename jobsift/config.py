@@ -88,6 +88,10 @@ class Config:
     learn_senders: bool = True
     # Where --render writes and what --publish pushes to. See jobsift/render.py.
     render: dict = field(default_factory=dict)
+    # false: a lane that reads only its scrape sources and never opens the inbox.
+    # The inbox belongs to one lane; a second one reading it would extract and
+    # score every alert again into its own database (docs/va-lane.md).
+    email_enabled: bool = True
 
     @property
     def telegram_active(self) -> bool:
@@ -177,6 +181,7 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         google_sheet=google_sheet,
         learn_senders=bool(data.get("learn_senders", True)),
         render=dict(data.get("render") or {}),
+        email_enabled=bool(data.get("email_enabled", True)),
     )
 
     # Validate the API key for the chosen provider + Gmail creds.
@@ -185,9 +190,9 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
                     "deepseek": "DEEPSEEK_API_KEY"}[provider]
     if not os.getenv(provider_key):
         missing.append(f"{provider_key} (required for llm_provider: {provider})")
-    if not config.gmail_address:
+    if config.email_enabled and not config.gmail_address:
         missing.append("GMAIL_ADDRESS")
-    if not config.gmail_app_password:
+    if config.email_enabled and not config.gmail_app_password:
         missing.append("GMAIL_APP_PASSWORD")
     if missing:
         raise SystemExit(f"Missing required secrets in .env: {', '.join(missing)}")

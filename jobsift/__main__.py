@@ -1074,7 +1074,10 @@ def main() -> None:
     log.info("LLM provider: %s", config.llm_provider)
 
     store = Store(config.database_path)
-    gmail = GmailReader(config.gmail_address, config.gmail_app_password)
+    gmail = (GmailReader(config.gmail_address, config.gmail_app_password)
+             if config.email_enabled else None)
+    if gmail is None:
+        log.info("Inbox off (email_enabled: false); reading scrape sources only")
     with open(config.resume_path, encoding="utf-8") as fh:
         resume = fh.read()
 
@@ -1145,7 +1148,7 @@ def main() -> None:
             # new user never has to learn known_senders exists (senders.learn).
             # Before the pass, so today's alerts from them are read today. Not on
             # --once, which is for trying things and should not write data/.
-            if config.learn_senders and not args.once:
+            if config.learn_senders and gmail is not None and not args.once:
                 try:
                     from .senders import learn, learned_path, notice
 

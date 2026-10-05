@@ -117,15 +117,17 @@ def _record_applications(config, store, sheet, messages) -> set[str]:
 
 def run_once(config, llm, store, gmail, resume, sheet=None, telegram_send=None) -> int:
     """Process the inbox once. Returns the number of new jobs handled."""
-    first_run = store.is_fresh_install()
-    lookback = config.first_run_lookback_days if first_run else config.lookback_days
-    if first_run:
-        logger.info("Fresh install — backfilling %d day(s) of inbox history", lookback)
-    # Only mail not yet processed is downloaded. Every pass used to pull the whole
-    # lookback window in full, 288 times a day, and then skip most of it.
-    messages = gmail.fetch_recent(
-        lookback_days=lookback, wanted=lambda uid: not store.is_email_processed(uid))
-    logger.info("Fetched %d new inbox message(s) (lookback %dd)", len(messages), lookback)
+    messages = []
+    if gmail is not None:  # None on a lane with email_enabled: false
+        first_run = store.is_fresh_install()
+        lookback = config.first_run_lookback_days if first_run else config.lookback_days
+        if first_run:
+            logger.info("Fresh install — backfilling %d day(s) of inbox history", lookback)
+        # Only mail not yet processed is downloaded. Every pass used to pull the whole
+        # lookback window in full, 288 times a day, and then skip most of it.
+        messages = gmail.fetch_recent(
+            lookback_days=lookback, wanted=lambda uid: not store.is_email_processed(uid))
+        logger.info("Fetched %d new inbox message(s) (lookback %dd)", len(messages), lookback)
     receipts = _record_applications(config, store, sheet, messages)
     handled = 0
 

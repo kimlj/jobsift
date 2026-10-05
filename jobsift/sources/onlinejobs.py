@@ -25,8 +25,11 @@ job dicts directly.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
+from contextlib import contextmanager
+from pathlib import Path
 from urllib.parse import quote_plus
 
 import httpx
@@ -43,6 +46,13 @@ PAGE_SIZE = 30  # the site paginates by row offset, 30 per page
 USER_AGENT = "jobsift/0.1 (personal job-alert tool; +https://github.com/kimlj/jobsift)"
 DEFAULT_DELAY = 5.0  # robots.txt Crawl-delay
 DEFAULT_MAX_PAGES = 3
+
+# Held for a whole read of the board. More than one jobsift process can read it
+# from the same machine - the residential worker for the developer lane and the
+# VA lane (docs/va-lane.md) - and each paces itself to the Crawl-delay, which
+# two at once would halve. Same repo, same data/ directory, so one file is the
+# whole coordination.
+CRAWL_LOCK = Path(__file__).resolve().parents[2] / "data" / "onlinejobs.lock"
 
 
 def _matches(job: dict, include: list[str], exclude: list[str]) -> bool:
@@ -167,7 +177,58 @@ def _parse_card(card) -> dict | None:
     }
 
 
+@contextmanager
+def one_crawler(path: Path | None = None, poll: float = DEFAULT_DELAY):
+    """Wait until no other process on this machine is reading onlinejobs.ph.
+
+    An OS file lock, so a process that dies holding it releases it with no
+    stale-lock cleanup. A pass can take half an hour on a catch-up, so this
+    waits as long as it takes rather than timing out.
+    """
+    # Read at call time, so an offline check can point CRAWL_LOCK elsewhere and
+    # not queue behind a lane that is really crawling.
+    path = Path(path or CRAWL_LOCK)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+b") as fh:
+        waited = False
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if not waited:
+                    logger.info("onlinejobs.ph: another jobsift process is reading it; waiting")
+                    waited = True
+                time.sleep(poll)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 def fetch_jobs(settings: dict, is_seen=None, seen_batch=None) -> list[dict]:
+    """Read the board, one process at a time (see one_crawler)."""
+    with one_crawler():
+        return _fetch_jobs(settings, is_seen, seen_batch)
+
+
+def _fetch_jobs(settings: dict, is_seen=None, seen_batch=None) -> list[dict]:
     """Read the public job search listing. Returns extract-shaped job dicts.
 
     `is_seen(job) -> bool` lets the caller say a listing is already stored. Here

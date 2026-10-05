@@ -9,17 +9,22 @@
 #
 # Paths are derived from this script's own location, so the repo can live
 # anywhere.
+#
+# -Config and -LogName run a second lane from the same checkout, as its own task:
+#   run-jobsift.ps1 -Config config.va.yaml -LogName jobsift-va   (docs/va-lane.md)
+
+param([string]$Config = 'config.yaml', [string]$LogName = 'jobsift')
 
 Set-Location -LiteralPath $PSScriptRoot
 
 $logDir = Join-Path $PSScriptRoot 'logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-$log = Join-Path $logDir ("jobsift-{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
+$log = Join-Path $logDir ("{0}-{1}.log" -f $LogName, (Get-Date -Format 'yyyyMMdd'))
 
 $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path $python)) { $python = 'python' }   # fall back to PATH
 
-"=== jobsift starting $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
+"=== jobsift ($Config) starting $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
     Out-File -FilePath $log -Append -Encoding utf8
 
 # Redirect through cmd.exe rather than PowerShell's `*>>`.
@@ -30,6 +35,6 @@ if (-not (Test-Path $python)) { $python = 'python' }   # fall back to PATH
 # terminating error and the task dies on startup having written nothing. That
 # failure looks exactly like "python is broken": task result 1, empty log, no
 # process. cmd's own `>>` and `2>&1` do no such wrapping.
-& cmd.exe /c "`"$python`" -u -m jobsift >> `"$log`" 2>&1"
+& cmd.exe /c "`"$python`" -u -m jobsift --config `"$Config`" >> `"$log`" 2>&1"
 
 exit $LASTEXITCODE

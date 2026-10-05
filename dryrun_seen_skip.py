@@ -16,8 +16,14 @@ that prevents it (`is_seen`) already existed and was wired to jobstreet only.
 from __future__ import annotations
 
 import sys
+import tempfile
+from pathlib import Path
 
 import jobsift.sources.onlinejobs as oj
+
+# Its own lock file: the real one is held whenever a lane on this machine is
+# reading the board, and an offline check must not wait for that.
+oj.CRAWL_LOCK = Path(tempfile.mkdtemp()) / "onlinejobs.lock"
 
 CARD = """
 <div class="jobpost-cat-box">
