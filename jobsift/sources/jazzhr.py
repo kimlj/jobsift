@@ -94,7 +94,11 @@ def parse_board(page: str, board: str, settings: dict | None = None) -> list[dic
             "title": title,
             "company": company,
             "location": location,
-            "candidate_location": location,
+            # Left empty on purpose. candidate_location is read strictly, as an
+            # eligibility rule, and JazzHR's "Remote" is free text: passing it
+            # there filtered every Bamboo Works role on the first live pass as
+            # "eligibility limited to 'Remote'".
+            "candidate_location": "",
             "salary": "",
             "description": "",
             "posted": "",

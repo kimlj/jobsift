@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 
+from jobsift.filters import geography_check
 from jobsift.sources.jazzhr import parse_board, parse_detail
 from jobsift.utils import job_key
 
@@ -100,6 +101,10 @@ check("dedup key matches the Working Nomads copy",
       job_key(jobs[1]) == "ai automation engineer claude code ai agents::bamboo works",
       job_key(jobs[1]))
 check("no gate keeps every role", len(parse_board(LIST_PAGE, "bambooworks", {})) == 3)
+# The first live pass put "Remote" in candidate_location, which the geography rule
+# reads as an eligibility list, and filtered all 28 roles. It must pass as remote.
+passed, why = geography_check(jobs[0], {})
+check("a Remote role passes the geography rule", passed, why)
 
 print("Detail page")
 detail = parse_detail(DETAIL_PAGE)
