@@ -459,6 +459,20 @@ scrape_sources:
     # they live in the shared filters.exclude_titles and apply to every source.
     include_keywords: []
     exclude_keywords: []
+  # ── Company boards on JazzHR (<board>.applytojob.com) ──
+  # For an employer or recruiter that posts only on its own JazzHR board. Each
+  # board is one /apply page listing every open role, plus one detail page per
+  # role that passes the title gate and is not already stored. robots.txt
+  # disallows only /cb. `boards` takes the subdomain: bambooworks for
+  # bambooworks.applytojob.com. A recruiter posts a few roles a day, so every
+  # three hours is plenty. Datacenter IPs are served (checked 2026-10-06).
+  jazzhr:
+    enabled: false
+    boards: [bambooworks]
+    interval_seconds: 10800
+    delay_seconds: 2
+    include_keywords: []
+    exclude_keywords: []
   # Batches from a residential worker (docs/residential-worker.md): a machine at
   # home that reads onlinejobs.ph, which answers a datacenter with a 403, and
   # delivers what it finds here over SSH. Enable it on the core only. It is read

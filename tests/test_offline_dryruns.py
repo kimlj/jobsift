@@ -35,6 +35,7 @@ OFFLINE = [
     ("dryrun_vet.py", []),
     ("dryrun_render.py", []),
     ("dryrun_stages.py", []),
+    ("dryrun_jazzhr.py", []),
 ]
 
 

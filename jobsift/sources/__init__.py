@@ -96,6 +96,10 @@ def collect(config, store=None) -> list[dict]:
                 from .jobstreet import fetch_jobs
 
                 found = fetch_jobs(settings, is_seen=_seen)
+            elif name == "jazzhr":
+                from .jazzhr import fetch_jobs
+
+                found = fetch_jobs(settings, is_seen=_seen)
             elif name == "remote_feeds":
                 from .remote_feeds import fetch_jobs
 
